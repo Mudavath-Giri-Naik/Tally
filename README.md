@@ -134,9 +134,16 @@ Model notes, learned the hard way:
 
 ```bash
 npm test          # unit: crypto, classification, guardrails, agent wiring, channels
-npm run stack:up  # Docker Postgres + PostgREST
+npm run stack:up  # Docker Postgres + PostgREST; prints the TEST_SERVICE_JWT to use
 npm run test:db   # integration: concurrency, ingestion, the full pipeline, insights
 ```
+
+`test:db` is the one script that does **not** load `.env`, deliberately. It
+takes `TEST_DB_URL` and `TEST_SERVICE_JWT` from `stack:up`, and these tests
+truncate tables between cases — handing them your production credentials is a
+mistake worth making structurally impossible rather than remembering to avoid.
+The scripts that genuinely need real credentials (`db:push`, `seed`, `worker`,
+`batch`) do load it.
 
 The integration tests run against a real Postgres behind a real PostgREST, using
 the real `@supabase/supabase-js` client. Only two things are faked: the model
