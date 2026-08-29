@@ -1,0 +1,40 @@
+{
+  "name": "tally",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tally — AI revenue recovery agent. Multi-tenant, one engine.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:db": "tsx --test --test-concurrency=1 tests/db/*.test.ts",
+    "db:push": "tsx scripts/db-push.ts",
+    "seed": "tsx scripts/seed.ts",
+    "worker": "tsx scripts/run-worker.ts",
+    "batch": "tsx scripts/batch-test.ts",
+    "stack:up": "bash scripts/start-local-stack.sh",
+    "stack:down": "docker rm -f tally-pg tally-postgrest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "@supabase/supabase-js": "^2.58.0",
+    "next": "^15.5.0",
+    "razorpay": "^2.9.6",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "resend": "^6.1.0",
+    "twilio": "^5.10.0",
+    "zod": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

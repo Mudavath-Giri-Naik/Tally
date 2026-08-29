@@ -1,0 +1,18 @@
+# dependencies / build output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# Environment files hold live credentials. Only .env.example — which contains
+# nothing but placeholders — is ever committed.
+.env
+.env.*
+!.env.example
+
+# scratch / local working files
+.scratch/
+*.log
+supabase/.temp/
