@@ -66,7 +66,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         webhook_secret,
         next_steps: {
           webhook_url: publicMerchant.webhook_url,
-          dashboard_url: `${PUBLIC_URL()}/dashboard/${merchant.id}`,
+          dashboard_url: publicMerchant.dashboard_url,
           events_to_subscribe: [
             "payment.failed",
             "order.paid",

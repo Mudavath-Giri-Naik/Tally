@@ -14,9 +14,11 @@ import Link from "next/link";
 interface Success {
   merchant: {
     id: string;
+    slug: string;
     business_name: string;
     razorpay_key_id_masked: string;
     webhook_url: string;
+    dashboard_url: string;
   };
   webhook_secret: string;
   next_steps: {
@@ -138,7 +140,12 @@ export default function OnboardingPage() {
             The next failed payment on your account will appear on your
             dashboard within a minute, already classified.
           </p>
-          <Link className="btn" href={`/dashboard/${result.merchant.id}`}>
+          <p className="muted small" style={{ marginBottom: 16 }}>
+            Your dashboard lives at{" "}
+            <code>/dashboard/{result.merchant.slug}</code> — bookmark it, it is
+            the same link for everyone at your business.
+          </p>
+          <Link className="btn" href={`/dashboard/${result.merchant.slug}`}>
             Open dashboard
           </Link>
         </div>

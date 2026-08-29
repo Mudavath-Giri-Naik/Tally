@@ -14,6 +14,7 @@ import type {
   ActionOutcome,
   DecisionRecord,
   EventType,
+  EventStatus,
   RootCause,
 } from "./types";
 
@@ -363,4 +364,92 @@ export async function listEvents(
     .limit(limit);
   if (error) throw new Error(`Could not list events: ${error.message}`);
   return (data ?? []) as RecoveryEvent[];
+}
+
+/**
+ * The events view: filtered, paged, and with the customer already joined in.
+ *
+ * The dashboard needs the customer's name beside every row, and fetching it
+ * per row would be one query per event. PostgREST embeds it in the same
+ * request instead. `count: "exact"` comes back in the same round trip, which
+ * is what makes paging honest - a page count derived from the rows you
+ * happened to fetch is not a page count.
+ */
+export interface EventFilter {
+  status?: EventStatus;
+  type?: EventType;
+  reason?: string;
+  /** Matches a customer name, email or phone, case-insensitively. */
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface EventRow extends RecoveryEvent {
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  customer_opted_out: boolean;
+}
+
+export interface EventPage {
+  rows: EventRow[];
+  total: number;
+}
+
+export async function listEventsFiltered(
+  merchantId: string,
+  filter: EventFilter = {},
+): Promise<EventPage> {
+  const limit = Math.min(Math.max(filter.limit ?? 25, 1), 200);
+  const offset = Math.max(filter.offset ?? 0, 0);
+
+  // Strip the PostgREST filter metacharacters. A customer called
+  // "Sharma, Ltd." would otherwise be parsed as two filter terms, and a name
+  // containing a bare `*` would silently widen the match.
+  const term = filter.search?.trim().replace(/[,()*\\]/g, "") || "";
+
+  // The embed has to be an inner join while searching. A filter on an
+  // *outer*-joined embed narrows the embedded object but not the parent row,
+  // so a plain `customers(...)` embed returns every event and merely blanks
+  // the customers that did not match - which reads as "the search did
+  // nothing". `!inner` also drops events with no customer at all, which is
+  // right: a name search cannot match an event that has no-one attached.
+  const embed = term
+    ? "customers!inner(name, email, phone, opted_out)"
+    : "customers(name, email, phone, opted_out)";
+
+  let q = db()
+    .from("events")
+    .select(`*, ${embed}`, { count: "exact" })
+    .eq("merchant_id", merchantId);
+
+  if (filter.status) q = q.eq("status", filter.status);
+  if (filter.type) q = q.eq("type", filter.type);
+  if (filter.reason) q = q.eq("reason", filter.reason);
+
+  if (term) {
+    q = q.or(
+      `name.ilike.%${term}%,email.ilike.%${term}%,phone.ilike.%${term}%`,
+      { referencedTable: "customers" },
+    );
+  }
+
+  const { data, error, count } = await q
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) throw new Error(`Could not list events: ${error.message}`);
+
+  const rows = ((data ?? []) as Array<Record<string, any>>).map((r) => {
+    const { customers, ...event } = r;
+    return {
+      ...(event as RecoveryEvent),
+      customer_name: customers?.name ?? null,
+      customer_email: customers?.email ?? null,
+      customer_phone: customers?.phone ?? null,
+      customer_opted_out: Boolean(customers?.opted_out),
+    };
+  });
+
+  return { rows, total: count ?? rows.length };
 }

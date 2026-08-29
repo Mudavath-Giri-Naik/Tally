@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,6 +7,14 @@ export const metadata: Metadata = {
     "Connect Razorpay once. Tally listens for failed payments, works out why they failed, and recovers them on its own.",
 };
 
+/**
+ * The root layout carries the document and the stylesheet, and nothing else.
+ *
+ * Chrome lives one level down, because the two halves of the app do not share
+ * any: the marketing pages get a top bar (see `(marketing)/layout.tsx`), and
+ * the dashboard gets a sidebar. Putting either here would render both on the
+ * pages that only want one.
+ */
 export default function RootLayout({
   children,
 }: {
@@ -15,20 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <header className="topbar">
-          <div className="topbar__inner">
-            <Link href="/" className="topbar__brand">
-              Tally
-            </Link>
-            <nav className="topbar__nav">
-              <Link href="/docs">Docs</Link>
-              <Link href="/onboarding">Connect</Link>
-            </nav>
-          </div>
-        </header>
-        <main>{children}</main>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

@@ -26,6 +26,7 @@ import type { Merchant, Channel } from "./types";
 export interface PublicMerchant {
   id: string;
   business_name: string;
+  slug: string;
   razorpay_key_id_masked: string;
   has_whatsapp: boolean;
   has_voice: boolean;
@@ -37,6 +38,7 @@ export interface PublicMerchant {
   active: boolean;
   created_at: string;
   webhook_url: string;
+  dashboard_url: string;
 }
 
 export interface OnboardingInput {
@@ -135,6 +137,7 @@ export function toPublic(m: Merchant, baseUrl: string): PublicMerchant {
   return {
     id: m.id,
     business_name: m.business_name,
+    slug: m.slug,
     razorpay_key_id_masked: masked,
     has_whatsapp: m.whatsapp_number !== null,
     has_voice: m.voice_number !== null,
@@ -146,6 +149,9 @@ export function toPublic(m: Merchant, baseUrl: string): PublicMerchant {
     active: m.active,
     created_at: m.created_at,
     webhook_url: `${baseUrl}/api/webhooks/razorpay/${m.id}`,
+    // The slug, not the id: this is the address a merchant bookmarks and
+    // reads aloud. The id still resolves, so old links keep working.
+    dashboard_url: `${baseUrl}/dashboard/${m.slug}`,
   };
 }
 
@@ -202,6 +208,42 @@ export async function getMerchant(id: string): Promise<Merchant | null> {
     .maybeSingle();
   if (error) throw new Error(`Could not load merchant: ${error.message}`);
   return (data as Merchant) ?? null;
+}
+
+/**
+ * Look a merchant up by its URL slug.
+ *
+ * The slug is assigned by a database trigger (see schema.sql), so this is
+ * read-only - nothing here invents one.
+ */
+export async function getMerchantBySlug(slug: string): Promise<Merchant | null> {
+  const { data, error } = await db()
+    .from("merchants")
+    .select("*")
+    .eq("slug", slug.toLowerCase())
+    .maybeSingle();
+  if (error) throw new Error(`Could not load merchant: ${error.message}`);
+  return (data as Merchant) ?? null;
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve whatever is in the URL to a merchant.
+ *
+ * Dashboards are addressed by slug, but ids were the address before slugs
+ * existed and are still what the onboarding response used to hand out. Both
+ * resolve, so no bookmark breaks. Anything shaped like a uuid is tried as one;
+ * everything else is a slug, which also keeps a slug that happens to look
+ * like a uuid from being sent to Postgres as one and erroring.
+ */
+export async function resolveMerchant(
+  handle: string,
+): Promise<Merchant | null> {
+  return UUID_RE.test(handle)
+    ? getMerchant(handle)
+    : getMerchantBySlug(handle);
 }
 
 export async function listMerchants(): Promise<Merchant[]> {

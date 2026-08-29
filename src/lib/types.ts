@@ -51,6 +51,8 @@ export type RootCause =
 export interface Merchant {
   id: string;
   business_name: string;
+  /** URL-safe name, unique across merchants. Assigned by a database trigger. */
+  slug: string;
   razorpay_key_id: string; // encrypted at rest
   razorpay_key_secret: string; // encrypted at rest
   webhook_secret: string;

@@ -20,6 +20,7 @@ function merchant(over: Partial<Merchant> = {}): Merchant {
   return {
     id: "m1",
     business_name: "Mandate",
+    slug: "mandate",
     razorpay_key_id: "enc",
     razorpay_key_secret: "enc",
     webhook_secret: "w",

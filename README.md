@@ -189,9 +189,30 @@ src/lib/
     worker.ts              claim -> decide -> act -> record
   inbound.ts               understanding replies: opt-out, promise-to-pay
   channels/                email (Resend), whatsapp + voice (Twilio)
-src/app/                   landing, docs, onboarding, dashboard, API routes
+src/components/            dashboard UI: charts, filters, tables, forms
+src/app/
+  (marketing)/             landing, docs, onboarding - the pages with a top bar
+  dashboard/[slug]/        the merchant dashboard, five sections, own sidebar
+  api/                     onboarding, settings, webhooks, the cron tick
 scripts/                   local stack, schema push, seed, worker, batch run
 ```
+
+### The dashboard
+
+A merchant lands on `/dashboard/<business-name>` after onboarding — the slug is
+assigned by a database trigger, deduped if two businesses share a name, and the
+old `/dashboard/<uuid>` links still resolve. Five sections:
+
+| Section | Answers |
+|---|---|
+| Overview | Is the agent earning its keep? Money, trend, causes, recent decisions. |
+| Events | Every recovery case, filterable by status and type, searchable by customer. |
+| Customers | Who keeps failing, who has opted out, who has been recovered. |
+| Agent activity | The full audit trail, including the actions it decided *against*. |
+| Settings | Contact window, channels, attempt cap, pause switch, webhook URL. |
+
+Every page is server-rendered and merchant-scoped; the only client code is the
+hover layer on the charts, the filter row, and the settings form.
 
 ---
 
