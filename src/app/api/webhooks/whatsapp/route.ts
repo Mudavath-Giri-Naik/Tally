@@ -53,7 +53,8 @@ function twiml(status = 200): NextResponse {
  */
 function candidateUrls(request: Request): string[] {
   const path = "/api/webhooks/whatsapp";
-  const urls = [`${PUBLIC_URL().replace(/\/$/, "")}${path}`];
+  // PUBLIC_URL normalises the trailing slash itself, so this is just a join.
+  const urls = [`${PUBLIC_URL()}${path}`];
 
   const proto = request.headers.get("x-forwarded-proto");
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");

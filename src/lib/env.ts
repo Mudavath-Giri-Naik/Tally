@@ -70,5 +70,21 @@ export function isConfigured(...names: string[]): boolean {
   });
 }
 
+/**
+ * Tally's own public origin, with no trailing slash.
+ *
+ * Callers build paths as `${PUBLIC_URL()}/api/...`, so a trailing slash in the
+ * environment variable produces `https://host//api/...`. That is not cosmetic:
+ * Vercel answers the doubled path with a 308, and Razorpay does not follow a
+ * redirect when delivering a webhook - so every event would be dropped, while
+ * the dashboard cheerfully displayed the URL that dropped them.
+ *
+ * Normalising here rather than at each call site because the trailing slash is
+ * a property of the value, and every caller getting it right is a thing that
+ * has to keep being true as call sites are added.
+ */
 export const PUBLIC_URL = (): string =>
-  optionalEnv("TALLY_PUBLIC_URL") ?? "http://localhost:3000";
+  (optionalEnv("TALLY_PUBLIC_URL") ?? "http://localhost:3000").replace(
+    /\/+$/,
+    "",
+  );
