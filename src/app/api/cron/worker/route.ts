@@ -11,8 +11,13 @@ import { timingSafeEqual } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Vercel's default is 10s; a batch that sends real messages needs longer.
-export const maxDuration = 300;
+// Vercel's Hobby plan caps a function at 60s; Pro allows up to 800s. 60 is the
+// value that deploys on either, so the batch size is sized to fit it instead
+// (see vercel.json: ?batch=5). On Pro, raise this and the batch together.
+//
+// A run that is cut off mid-batch is not lost: the claimed events stay in
+// `processing` and reclaim_stale_events puts them back on the queue.
+export const maxDuration = 60;
 
 function authorised(request: Request): boolean {
   const expected = optionalEnv("CRON_SECRET");
