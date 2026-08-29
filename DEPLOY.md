@@ -6,8 +6,9 @@ rather than loudly:
 
 1. `TALLY_PUBLIC_URL` must match the real domain, or Twilio replies 403 and
    merchants are handed the wrong webhook URL.
-2. The Hobby plan runs cron **once per day**, which is not often enough for a
-   recovery agent. Use an external scheduler.
+2. The Hobby plan runs cron **once per day** and rejects anything more
+   frequent at deploy time, which is not often enough for a recovery agent.
+   Use an external scheduler.
 3. The Hobby plan caps a function at **60 seconds**, so the worker batch is
    sized to fit rather than being allowed to run long.
 
@@ -94,22 +95,32 @@ a localhost URL into Razorpay needs to update it there.
 
 ## The cron problem
 
-`vercel.json` ships with an hourly schedule, because **Vercel's Hobby plan only
-permits one cron execution per day** and a more frequent schedule is rejected at
-deploy time. Hourly is the compromise that deploys everywhere; neither is fast
-enough for real recovery work.
+`vercel.json` ships with a **daily** schedule, because Vercel's Hobby plan
+permits one cron execution per day and rejects a more frequent expression at
+deploy time:
 
-**On Pro**, edit `vercel.json` to run every minute and raise the batch:
-
-```json
-{ "path": "/api/cron/worker?batch=20", "schedule": "* * * * *" }
+```
+Hobby accounts are limited to daily cron jobs. This cron expression
+(0 * * * *) would run more than once per day.
 ```
 
-and raise `maxDuration` in `src/app/api/cron/worker/route.ts` from `60` to `300`.
+Once a day is useless for a recovery agent, so the daily tick is only a safety
+net. The real cadence comes from outside Vercel.
 
-**On Hobby**, leave the Vercel cron as a safety net and drive the worker from a
-free external scheduler instead — [cron-job.org](https://cron-job.org),
-GitHub Actions, or any uptime pinger:
+**Option A - GitHub Actions** (already in the repo, `.github/workflows/worker-tick.yml`).
+Add two repository secrets under **Settings -> Secrets and variables -> Actions**:
+
+| Secret | Value |
+|---|---|
+| `TALLY_PUBLIC_URL` | `https://your-app.vercel.app` (no trailing slash) |
+| `CRON_SECRET` | the same value you set in Vercel |
+
+Then **Actions -> worker tick -> Run workflow** once to confirm it returns
+`200` before trusting the schedule. GitHub will not schedule below five
+minutes and runs late when its queue is busy, so treat five as a floor.
+
+**Option B - an external pinger** ([cron-job.org](https://cron-job.org) and
+most uptime services do one-minute intervals for free):
 
 ```
 URL:     https://your-app.vercel.app/api/cron/worker?batch=5
@@ -118,18 +129,29 @@ Header:  Authorization: Bearer <your CRON_SECRET>
 Every:   1 minute
 ```
 
-The endpoint is protected by `CRON_SECRET` and is safe to call concurrently —
-`claim_events` uses `FOR UPDATE SKIP LOCKED`, so two overlapping runs never
-process the same event twice.
+Either way the endpoint is protected by `CRON_SECRET` and is safe to call
+concurrently - `claim_events` uses `FOR UPDATE SKIP LOCKED`, so two
+overlapping runs never process the same event twice. Running both options at
+once is harmless.
+
+**On Pro**, none of this is needed. Edit `vercel.json` to run every minute and
+raise the batch:
+
+```json
+{ "path": "/api/cron/worker?batch=20", "schedule": "* * * * *" }
+```
+
+and raise `maxDuration` in `src/app/api/cron/worker/route.ts` from `60` to
+`300`.
 
 ### Why the batch is only 5
 
-Each event costs roughly 7–9 seconds end to end: one model call, a Razorpay
+Each event costs roughly 7-9 seconds end to end: one model call, a Razorpay
 payment-link creation, and a send. Five fits inside the 60-second Hobby ceiling
 with room to spare; twenty would be cut off around event seven.
 
-Being cut off is not data loss — interrupted events stay in `processing` and
-`reclaim_stale_events` returns them to the queue after five minutes — but it
+Being cut off is not data loss - interrupted events stay in `processing` and
+`reclaim_stale_events` returns them to the queue after five minutes - but it
 wastes a run. Size the batch to the timeout.
 
 ---

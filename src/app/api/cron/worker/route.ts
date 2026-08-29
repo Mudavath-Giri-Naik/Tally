@@ -1,5 +1,6 @@
 /**
- * The worker tick. Vercel Cron calls this every minute (see vercel.json).
+ * The worker tick. Called on a schedule (see vercel.json for the daily Hobby
+ * safety net, and .github/workflows/worker-tick.yml for the real cadence).
  *
  * Deliberately thin: all the logic is in lib/agent/worker.ts so the same code
  * path runs from `npm run worker` locally, from a test, and from cron.

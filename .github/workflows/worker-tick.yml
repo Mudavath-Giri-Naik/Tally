@@ -1,0 +1,38 @@
+# Drives the Tally worker on a schedule Vercel's Hobby plan cannot.
+#
+# Hobby permits one cron execution per day, so vercel.json holds a daily tick
+# as a safety net and the real cadence comes from here. GitHub's scheduler
+# will not go below five minutes and runs late under load; if you need a
+# tighter loop, point cron-job.org at the same URL instead (see DEPLOY.md).
+name: worker tick
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# A slow tick must not stack on the next one. Overlapping runs are safe at the
+# database level (claim_events uses FOR UPDATE SKIP LOCKED) but pointless.
+concurrency:
+  group: worker-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the worker
+        env:
+          BASE_URL: ${{ secrets.TALLY_PUBLIC_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS --max-time 120 \
+            -o /tmp/worker.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE_URL}/api/cron/worker?batch=5")
+          cat /tmp/worker.json
+          echo
+          # 401 means the secret drifted, 5xx means the tick failed. Both should
+          # turn the run red rather than passing quietly.
+          test "$status" = "200"
