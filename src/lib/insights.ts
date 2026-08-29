@@ -59,7 +59,10 @@ export async function merchantStats(
   const { data, error } = await db().rpc("merchant_stats", {
     p_merchant_id: merchantId,
     p_since: sinceIso(days + offsetDays),
-    p_until: sinceIso(offsetDays),
+    // No upper bound for the current window. A bound taken from this process's
+    // clock would exclude an event the database stamped microseconds later -
+    // the row exists, the dashboard just cannot see it yet.
+    p_until: offsetDays > 0 ? sinceIso(offsetDays) : null,
   });
   if (error) throw new Error(`Could not load stats: ${error.message}`);
   if (!data) return EMPTY_STATS;

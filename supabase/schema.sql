@@ -343,7 +343,12 @@ drop function if exists merchant_stats(uuid, timestamptz);
 create or replace function merchant_stats(
   p_merchant_id uuid,
   p_since       timestamptz default now() - interval '30 days',
-  p_until       timestamptz default now()
+  -- Null means "up to now, whenever now is". Only the *previous* period needs
+  -- a real upper bound; giving the current one a bound computed from the
+  -- application's clock drops any event the database timestamped a fraction of
+  -- a second ahead of it, which is exactly what happens when the two run on
+  -- different machines.
+  p_until       timestamptz default null
 ) returns jsonb
 language sql stable
 as $fn$
@@ -374,7 +379,7 @@ as $fn$
   from events
   where merchant_id = p_merchant_id
     and created_at >= p_since
-    and created_at <  p_until;
+    and (p_until is null or created_at < p_until);
 $fn$;
 
 -- "Most common failure reasons this week" - the root-cause insight.
@@ -605,6 +610,71 @@ as $fn$
     and a.created_at >= p_since
   group by a.outcome
   order by count desc;
+$fn$;
+
+-- ===========================================================================
+-- Conversations awaiting a summary
+--
+-- A conversation is not a table. Every turn is already an action row - the
+-- audit trail has to contain what was said either way - so a conversation is
+-- just "the messages for one customer since the last summary written about
+-- them". Deriving it here beats keeping a second copy of the truth in sync.
+--
+-- A thread qualifies once it has gone quiet: summarising mid-exchange would
+-- produce a summary of half a conversation and then need rewriting.
+-- ===========================================================================
+create or replace function conversations_to_summarise(
+  p_idle_seconds int default 900,
+  p_limit        int default 10
+) returns table (
+  merchant_id    uuid,
+  customer_id    uuid,
+  anchor_event   uuid,
+  message_count  bigint,
+  first_at       timestamptz,
+  last_at        timestamptz
+)
+language sql stable
+as $fn$
+  with turns as (
+    select a.merchant_id,
+           e.customer_id,
+           a.event_id,
+           a.created_at,
+           a.message
+    from actions a
+    join events e on e.id = a.event_id
+    where a.message is not null
+      and e.customer_id is not null
+      -- Only the conversational rows: the outbound dunning copy the worker
+      -- sends is not part of a back-and-forth and reads oddly in a summary.
+      and (a.message like '[inbound] %' or a.message like '[reply] %')
+  ),
+  -- When each customer was last summarised. Anything before that is done.
+  summarised as (
+    select e.customer_id, max(a.created_at) as summarised_at
+    from actions a
+    join events e on e.id = a.event_id
+    where a.message like '[conversation] %'
+    group by e.customer_id
+  )
+  select t.merchant_id,
+         t.customer_id,
+         -- The event the newest turn was attached to, so the summary lands
+         -- beside the recovery the conversation was actually about.
+         (array_agg(t.event_id order by t.created_at desc))[1] as anchor_event,
+         count(*)          as message_count,
+         min(t.created_at) as first_at,
+         max(t.created_at) as last_at
+  from turns t
+  left join summarised s on s.customer_id = t.customer_id
+  where (s.summarised_at is null or t.created_at > s.summarised_at)
+  group by t.merchant_id, t.customer_id
+  having max(t.created_at) < now() - make_interval(secs => p_idle_seconds)
+     -- One turn is not a conversation; the action row already says it all.
+     and count(*) > 1
+  order by max(t.created_at)
+  limit p_limit;
 $fn$;
 
 -- --- Row Level Security ----------------------------------------------------

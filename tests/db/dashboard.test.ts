@@ -269,13 +269,22 @@ describe("actionSummary", () => {
 
 describe("statsWithTrend", () => {
   test("compares the window against the one before it", async () => {
-    // 40 days ago is outside a 30-day window, so it belongs to the previous one.
+    // Both timestamps are explicit. Letting the "current" one default to the
+    // database's now() makes this test depend on the host and the Postgres
+    // container agreeing on the time - and they do not: the container here
+    // runs a few hundred milliseconds ahead, which put the row fractionally
+    // beyond the upper bound merchantStats computes from the Node clock, and
+    // the test failed perhaps one run in five.
     await seedEvent(mandate, {
       status: "recovered",
       amount: 100000,
       createdAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
     });
-    await seedEvent(mandate, { status: "recovered", amount: 200000 });
+    await seedEvent(mandate, {
+      status: "recovered",
+      amount: 200000,
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+    });
 
     const stats = await statsWithTrend(mandate, 30);
     assert.equal(stats.amount_recovered, 200000);
@@ -284,7 +293,11 @@ describe("statsWithTrend", () => {
   });
 
   test("reports no comparison rather than inventing one from zero", async () => {
-    await seedEvent(mandate, { status: "recovered", amount: 200000 });
+    await seedEvent(mandate, {
+      status: "recovered",
+      amount: 200000,
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+    });
     const stats = await statsWithTrend(mandate, 30);
     // The first ever recovery is not "+100%", it is the first one.
     assert.equal(stats.recovered_delta_pct, null);

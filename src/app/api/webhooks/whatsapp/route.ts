@@ -2,20 +2,23 @@
  * Inbound WhatsApp replies.
  *
  * The other half of the conversation. Everything else in Tally pushes messages
- * out; this is what happens when a customer answers - and two of the answers
- * matter enough to act on automatically:
+ * out; this is what happens when a customer answers.
+ *
+ * Two answers are acted on deterministically, because a model should not be
+ * the thing standing between a customer and being left alone:
  *
  *   "STOP"              -> opt out immediately, stop every open event
  *   "I'll pay Friday"   -> a tracked promise-to-pay with a real due date
  *
- * Anything else is recorded in the audit trail and left for a human. That is
- * deliberate: guessing at an ambiguous reply is how an agent starts arguing
- * with a customer.
+ * Everything else is answered conversationally by the agent, with this
+ * customer's real payment history in front of it (see agent/converse.ts).
  *
- * Twilio expects a fast response, so this does its work inline but keeps it to
- * a handful of indexed queries - no model calls, no outbound sends.
+ * The shape of this route matters. Twilio wants a response in seconds and
+ * shows the customer an error page if it does not get one, so the reply is
+ * drafted and sent in `after()` - the webhook returns empty TwiML immediately
+ * and the model call happens once Twilio has already been answered.
  */
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import twilio from "twilio";
 import { optionalEnv, isConfigured, PUBLIC_URL } from "@/lib/env";
 import { classifyReply, stripChannelPrefix } from "@/lib/inbound";
@@ -27,11 +30,25 @@ import {
   ingestEvent,
   recordAction,
 } from "@/lib/events";
-import { listMerchants, whatsappNumber } from "@/lib/merchants";
-import type { Customer, Merchant } from "@/lib/types";
+import { listMerchants, whatsappNumber, getMerchant } from "@/lib/merchants";
+import { sendWhatsApp } from "@/lib/channels";
+import {
+  draftReply,
+  conversationTurns,
+  REPLY_PREFIX,
+  type ConversationContext,
+} from "@/lib/agent/converse";
+import { db } from "@/lib/supabase";
+import type { Customer, Merchant, RecoveryEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Twilio is answered in milliseconds, but the reply drafted in `after()` keeps
+// the function alive, and a Gemini call has been measured at ~24s. On the
+// default limit that work is killed halfway through and the customer is simply
+// never answered - with nothing in the logs to say why, because the request
+// itself already returned 200. 60 is the Hobby ceiling.
+export const maxDuration = 60;
 
 /** Twilio treats any 2xx with empty TwiML as "handled, send nothing back". */
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
@@ -154,6 +171,27 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     for (const customer of customers) {
       await handle(customer, intent, body, params);
+    }
+
+    // Answer them. Deliberately not awaited inside the request: drafting a
+    // reply costs a model call, and Twilio would time out and show the
+    // customer an error long before it returned.
+    //
+    // An opt-out is never answered. Confirming a STOP is still a message to
+    // someone who just asked for no more messages.
+    if (intent.kind !== "opt_out") {
+      after(async () => {
+        for (const customer of customers) {
+          await replyToCustomer(customer).catch((err) => {
+            // The inbound message is already recorded either way, so a failed
+            // reply degrades to "a human answers this one".
+            console.error("[whatsapp-in] reply failed", {
+              customer: customer.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+      });
     }
 
     return twiml();
@@ -282,4 +320,82 @@ async function handle(
 /** Twilio pings the endpoint when you save it in the console. */
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json({ status: "ok", listening: "whatsapp-inbound" });
+}
+
+/**
+ * Draft and send one reply, then record it as the agent's turn.
+ *
+ * Runs after the webhook has answered Twilio, so nothing here is on the
+ * critical path and a failure costs a reply rather than a 500.
+ */
+async function replyToCustomer(customer: Customer): Promise<void> {
+  if (!customer.phone) return;
+
+  const merchant = await getMerchant(customer.merchant_id);
+  if (!merchant || !merchant.active) return;
+
+  // Every event of theirs, so the agent can answer "what about the other one?"
+  const { data, error } = await db()
+    .from("events")
+    .select("*")
+    .eq("customer_id", customer.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw new Error(`Could not load their events: ${error.message}`);
+  const events = (data ?? []) as RecoveryEvent[];
+
+  const ctx: ConversationContext = {
+    merchant,
+    customer,
+    events,
+    turns: await conversationTurns(customer.id),
+  };
+
+  const outcome = await draftReply(ctx);
+  if (outcome.kind === "skipped") {
+    console.info("[whatsapp-in] no reply sent", {
+      customer: customer.id,
+      why: outcome.why,
+    });
+    return;
+  }
+
+  const result = await sendWhatsApp({
+    merchantName: merchant.business_name,
+    recipient: {
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+    },
+    subject: null,
+    body: outcome.reply.message,
+    // The agent puts a link in the text itself when the conversation calls for
+    // one; appending a second copy would read as a bot repeating itself.
+    link: null,
+  });
+
+  // Attach the turn to the event the conversation is about, so the thread and
+  // the recovery it belongs to stay in one place in the audit trail.
+  const anchor = events[0];
+  if (!anchor) return;
+
+  await recordAction({
+    eventId: anchor.id,
+    merchantId: customer.merchant_id,
+    channel: "whatsapp",
+    message: `${REPLY_PREFIX}${outcome.reply.message}`,
+    outcome: result.ok ? "sent" : "failed",
+    response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
+    sentAt: new Date().toISOString(),
+    decision: {
+      root_cause: anchor.reason ?? "unknown",
+      intervention: outcome.reply.needs_human ? "escalate_human" : "send_message",
+      channel: "whatsapp",
+      rationale: `Answered the customer about ${outcome.reply.topic}.${
+        outcome.reply.needs_human ? " Flagged for a person to read." : ""
+      }`,
+      source: "agent",
+      guardrail: outcome.reply.needs_human ? "reply_needs_human" : undefined,
+    },
+  });
 }

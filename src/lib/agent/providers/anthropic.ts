@@ -16,11 +16,16 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { optionalEnv } from "../../env";
 import {
   DecisionSchema,
+  ReplySchema,
+  SummarySchema,
   TransientProviderError,
   withRetry,
   type AgentDecision,
+  type AgentReply,
+  type AgentSummary,
   type DecisionProvider,
 } from "./index";
+import type { z } from "zod";
 
 const DEFAULT_MODEL = "claude-opus-5";
 
@@ -74,5 +79,48 @@ export class AnthropicProvider implements DecisionProvider {
     );
 
     return parsed as AgentDecision;
+  }
+
+  async reply(system: string, user: string): Promise<AgentReply> {
+    return (await this.parse(ReplySchema, system, user)) as AgentReply;
+  }
+
+  async summarise(system: string, user: string): Promise<AgentSummary> {
+    return (await this.parse(SummarySchema, system, user)) as AgentSummary;
+  }
+
+  /** The retry-wrapped structured call every method here shares. */
+  private async parse<T extends z.ZodTypeAny>(
+    schema: T,
+    system: string,
+    user: string,
+  ): Promise<z.infer<T>> {
+    return withRetry(
+      async () => {
+        try {
+          const response = await this.sdk().beta.messages.parse({
+            model: this.model,
+            max_tokens: 2000,
+            output_config: { effort: this.effort() },
+            output_format: betaZodOutputFormat(schema),
+            system,
+            messages: [{ role: "user", content: user }],
+          });
+          if (!response.parsed_output) {
+            throw new Error("Claude returned no parseable output");
+          }
+          return response.parsed_output as z.infer<T>;
+        } catch (err) {
+          const status = (err as { status?: number }).status;
+          if (status === 429 || (status !== undefined && status >= 500)) {
+            throw new TransientProviderError(
+              `Claude ${status}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          throw err;
+        }
+      },
+      { label: `anthropic:${this.model}` },
+    );
   }
 }

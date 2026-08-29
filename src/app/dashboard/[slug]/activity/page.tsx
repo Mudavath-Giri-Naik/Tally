@@ -31,6 +31,31 @@ function human(value: string): string {
   return value.replace(/_/g, " ");
 }
 
+/**
+ * A message row is one of four things, and the feed is unreadable if they all
+ * look alike. The prefix is written by whoever recorded the turn (see
+ * agent/converse.ts) and is stripped for display.
+ */
+function readMessage(raw: string | null): {
+  kind: "inbound" | "reply" | "summary" | "outbound";
+  text: string;
+} | null {
+  if (!raw) return null;
+  if (raw.startsWith("[inbound] "))
+    return { kind: "inbound", text: raw.slice(10) };
+  if (raw.startsWith("[reply] ")) return { kind: "reply", text: raw.slice(8) };
+  if (raw.startsWith("[conversation] "))
+    return { kind: "summary", text: raw.slice(15) };
+  return { kind: "outbound", text: raw };
+}
+
+const MESSAGE_LABEL: Record<string, string> = {
+  inbound: "Customer said",
+  reply: "Tally replied",
+  summary: "Conversation",
+  outbound: "Message sent",
+};
+
 export default async function ActivityPage({
   params,
   searchParams,
@@ -168,18 +193,39 @@ export default async function ActivityPage({
                     <StatusPill value={a.outcome} />
                   </td>
                   <td className="why">
-                    <div className="small">{a.rationale}</div>
-                    {a.guardrail && (
-                      <div className="guardrail">
-                        guardrail: {human(a.guardrail)}
-                      </div>
-                    )}
-                    {a.message && (
-                      <details className="msg">
-                        <summary>Message sent</summary>
-                        <div className="msg__body">{a.message}</div>
-                      </details>
-                    )}
+                    {(() => {
+                      const m = readMessage(a.message);
+                      // A summary is the point of its own row - showing it
+                      // folded behind a disclosure buries the one line a
+                      // merchant actually wants to read.
+                      if (m?.kind === "summary") {
+                        return (
+                          <div className="convo">
+                            <div className="convo__label">Conversation</div>
+                            <div className="small">{m.text}</div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <>
+                          <div className="small">{a.rationale}</div>
+                          {a.guardrail && (
+                            <div className="guardrail">
+                              guardrail: {human(a.guardrail)}
+                            </div>
+                          )}
+                          {m && (
+                            <details
+                              className={`msg msg--${m.kind}`}
+                              open={m.kind === "inbound"}
+                            >
+                              <summary>{MESSAGE_LABEL[m.kind]}</summary>
+                              <div className="msg__body">{m.text}</div>
+                            </details>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}

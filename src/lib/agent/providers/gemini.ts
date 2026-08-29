@@ -13,9 +13,13 @@
 import { requireEnv, optionalEnv } from "../../env";
 import {
   DecisionSchema,
+  ReplySchema,
+  SummarySchema,
   TransientProviderError,
   withRetry,
   type AgentDecision,
+  type AgentReply,
+  type AgentSummary,
   type DecisionProvider,
 } from "./index";
 
@@ -62,6 +66,44 @@ const RESPONSE_SCHEMA = {
     },
   },
   required: ["intervention", "channel", "subject", "message", "rationale"],
+} as const;
+
+/** The conversational counterpart, in Gemini's schema dialect. */
+const REPLY_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    message: {
+      type: "STRING",
+      description:
+        "The reply to send to the customer, ready to go out verbatim on WhatsApp.",
+    },
+    needs_human: {
+      type: "BOOLEAN",
+      description:
+        "True when a person at the merchant should read this thread afterwards.",
+    },
+    topic: {
+      type: "STRING",
+      description: "Two or three words naming what the customer asked about.",
+    },
+  },
+  required: ["message", "needs_human", "topic"],
+} as const;
+
+const SUMMARY_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    summary: {
+      type: "STRING",
+      description:
+        "Two or three sentences: what the customer asked, what was said, where it left off.",
+    },
+    needs_human: {
+      type: "BOOLEAN",
+      description: "True when the thread still needs a person to pick it up.",
+    },
+  },
+  required: ["summary", "needs_human"],
 } as const;
 
 export class GeminiProvider implements DecisionProvider {
@@ -121,6 +163,79 @@ export class GeminiProvider implements DecisionProvider {
       );
     }
     return result.data;
+  }
+
+  async reply(system: string, user: string): Promise<AgentReply> {
+    // Warmer than a decision: this is read by a person mid-conversation, and
+    // a reply that sounds like a form letter reads as a bot stalling them.
+    const parsed = await this.generate(system, user, REPLY_SCHEMA, 0.7, 1024);
+    const result = ReplySchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(
+        `Gemini reply failed validation: ${result.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; ")}`,
+      );
+    }
+    return result.data;
+  }
+
+  async summarise(system: string, user: string): Promise<AgentSummary> {
+    const parsed = await this.generate(system, user, SUMMARY_SCHEMA, 0.2, 512);
+    const result = SummarySchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(
+        `Gemini summary failed validation: ${result.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; ")}`,
+      );
+    }
+    return result.data;
+  }
+
+  /** Shared request shape for every structured call this provider makes. */
+  private async generate(
+    system: string,
+    user: string,
+    responseSchema: unknown,
+    temperature: number,
+    maxOutputTokens: number,
+  ): Promise<unknown> {
+    const apiKey = requireEnv(
+      "GEMINI_API_KEY",
+      "the recovery decision engine (TALLY_LLM_PROVIDER=gemini)",
+    );
+    const base = optionalEnv("GEMINI_BASE_URL") ?? ENDPOINT;
+
+    const raw = await withRetry(
+      () =>
+        this.call(base, apiKey, {
+          system_instruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema,
+            temperature,
+            maxOutputTokens,
+          },
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+            {
+              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+              threshold: "BLOCK_ONLY_HIGH",
+            },
+          ],
+        }),
+      { label: `gemini:${this.model}` },
+    );
+
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new Error(
+        `Gemini returned text that was not JSON: ${raw.slice(0, 200)}`,
+      );
+    }
   }
 
   /** One HTTP round trip. Returns the raw JSON text the model produced. */

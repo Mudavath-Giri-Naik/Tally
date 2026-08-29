@@ -1048,6 +1048,29 @@ tr.is-muted td {
   color: var(--text-2);
 }
 
+/* What the customer wrote is the thing a merchant scans for, so it gets a
+   coloured edge; what Tally wrote back is recessive by comparison. */
+.msg--inbound .msg__body {
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+}
+.msg--reply .msg__body {
+  border-left: 3px solid var(--border-strong);
+}
+
+.convo {
+  border-left: 3px solid var(--accent);
+  padding-left: 11px;
+}
+.convo__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
 .tag {
   display: inline-block;
   font-size: 0.74rem;

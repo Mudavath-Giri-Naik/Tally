@@ -31,11 +31,40 @@ export const DecisionSchema = z.object({
 
 export type AgentDecision = z.infer<typeof DecisionSchema>;
 
+/**
+ * A reply in a live conversation with a customer.
+ *
+ * Separate from DecisionSchema because the two jobs are different: a decision
+ * chooses one action on an event, while this writes the next turn of a chat.
+ * `needs_human` is the model's own hand-raise - it is not a refusal to answer,
+ * it flags the thread for a person to read afterwards.
+ */
+export const ReplySchema = z.object({
+  message: z.string().min(1),
+  needs_human: z.boolean(),
+  /** Two or three words for the activity feed, e.g. "asked about the link". */
+  topic: z.string().min(1),
+});
+
+export type AgentReply = z.infer<typeof ReplySchema>;
+
+/** A one-line summary of a finished conversation, for the audit trail. */
+export const SummarySchema = z.object({
+  summary: z.string().min(1),
+  needs_human: z.boolean(),
+});
+
+export type AgentSummary = z.infer<typeof SummarySchema>;
+
 export interface DecisionProvider {
   /** Recorded in the audit trail so you can tell which brain made a call. */
   readonly name: string;
   readonly model: string;
   decide(system: string, user: string): Promise<AgentDecision>;
+  /** The next turn of a customer conversation. */
+  reply(system: string, user: string): Promise<AgentReply>;
+  /** What that conversation amounted to, once it has gone quiet. */
+  summarise(system: string, user: string): Promise<AgentSummary>;
 }
 
 export type ProviderName = "anthropic" | "gemini";

@@ -19,6 +19,13 @@ import {
   requeueFor,
 } from "../events";
 import { getMerchant, razorpayCredentials } from "../merchants";
+import { db } from "../supabase";
+import {
+  conversationTurns,
+  summariseConversation,
+  SUMMARY_PREFIX,
+  type ConversationContext,
+} from "./converse";
 import { createRetryLink, retryLinkReference } from "../razorpay";
 import { profileFor } from "../classify";
 import { decide } from "./decide";
@@ -35,6 +42,13 @@ import type { Merchant, RecoveryEvent, Channel } from "../types";
  * interface means the pipeline can be exercised end to end against a real
  * database without sending anyone a message or creating a live payment link.
  */
+/**
+ * Leave this much of the 60s function budget for the summary sweep, or skip it.
+ * A skipped sweep is picked up by the next tick five minutes later; a sweep cut
+ * off by the platform loses the report for the whole run.
+ */
+const SUMMARY_BUDGET_START_MS = 30_000;
+
 export interface WorkerTransport {
   dispatch(channel: Channel, msg: OutboundMessage): Promise<SendResult>;
   createLink(
@@ -53,6 +67,8 @@ export interface WorkerReport {
   stopped: number;
   escalated: number;
   failed: number;
+  /** Conversations that went quiet and got a summary written this tick. */
+  summarised: number;
   durationMs: number;
   errors: Array<{ eventId: string; error: string }>;
 }
@@ -392,6 +408,7 @@ export async function runWorker(
     stopped: 0,
     escalated: 0,
     failed: 0,
+    summarised: 0,
     durationMs: 0,
     errors: [],
   };
@@ -415,6 +432,116 @@ export async function runWorker(
     await processEvent(event, report, transport, suppressed);
   }
 
+  // Conversations that have gone quiet get one summary each. Last, because a
+  // send is time-sensitive and a summary is not - if the tick runs out of room
+  // here, nothing that mattered was skipped.
+  //
+  // The budget check is the point: a summary costs a model call, the function
+  // is capped at 60s on Hobby, and a batch of sends can already have used most
+  // of it. Being killed mid-sweep would take the whole tick's report with it,
+  // so the sweep only starts if there is plausibly time to finish one.
+  const elapsed = Date.now() - started;
+  if (elapsed < SUMMARY_BUDGET_START_MS) {
+    try {
+      report.summarised = await summariseQuietConversations();
+    } catch (err) {
+      console.error("[worker] conversation summary sweep failed", err);
+    }
+  } else {
+    console.info("[worker] skipping summaries, no time left in this tick", {
+      elapsedMs: elapsed,
+    });
+  }
+
   report.durationMs = Date.now() - started;
   return report;
+}
+
+/** A conversation the sweep has decided is finished. */
+interface QuietConversation {
+  merchant_id: string;
+  customer_id: string;
+  anchor_event: string;
+  message_count: number;
+  first_at: string;
+  last_at: string;
+}
+
+/**
+ * Write one summary per conversation that has stopped moving.
+ *
+ * The per-turn rows stay where they are; this adds a single line on top so the
+ * activity feed reads as "here is what that exchange amounted to" rather than
+ * as twenty rows a merchant has to reconstruct the story from.
+ */
+export async function summariseQuietConversations(
+  idleSeconds = 900,
+  limit = 10,
+): Promise<number> {
+  const { data, error } = await db().rpc("conversations_to_summarise", {
+    p_idle_seconds: idleSeconds,
+    p_limit: limit,
+  });
+  if (error) {
+    throw new Error(`Could not find conversations: ${error.message}`);
+  }
+
+  const quiet = (data ?? []) as QuietConversation[];
+  let written = 0;
+
+  for (const conv of quiet) {
+    try {
+      const merchant = await getMerchant(conv.merchant_id);
+      const customer = await getCustomer(conv.customer_id);
+      if (!merchant || !customer) continue;
+
+      const turns = await conversationTurns(conv.customer_id, 40);
+      if (turns.length === 0) continue;
+
+      const ctx: ConversationContext = {
+        merchant,
+        customer,
+        events: [],
+        turns,
+      };
+
+      const summary = await summariseConversation(ctx);
+      // No model configured. Skipping leaves the thread unsummarised and
+      // re-eligible next tick, which is better than writing a placeholder
+      // that a merchant would read as the actual outcome.
+      if (!summary) continue;
+
+      const span = `${conv.message_count} messages, ${new Date(conv.first_at)
+        .toISOString()
+        .slice(11, 16)}-${new Date(conv.last_at).toISOString().slice(11, 16)} UTC`;
+
+      await recordAction({
+        eventId: conv.anchor_event,
+        merchantId: conv.merchant_id,
+        channel: "whatsapp",
+        message: `${SUMMARY_PREFIX}${summary.summary}`,
+        outcome: summary.needs_human ? "escalated" : "no_action",
+        decision: {
+          root_cause: "unknown",
+          intervention: summary.needs_human ? "escalate_human" : "stop",
+          channel: "whatsapp",
+          rationale: `Conversation summary (${span}). ${summary.summary}`,
+          source: "agent",
+          guardrail: summary.needs_human
+            ? "conversation_needs_human"
+            : "conversation_summary",
+        },
+      });
+      written++;
+    } catch (err) {
+      // One bad conversation must not stop the rest, and the turns are still
+      // in the trail regardless - a missing summary loses nothing but tidiness.
+      console.error("[worker] could not summarise conversation", {
+        customer: conv.customer_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return written;
 }
