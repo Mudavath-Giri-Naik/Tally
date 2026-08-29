@@ -137,6 +137,44 @@ export default function DocsPage() {
       </section>
 
       <section className="section">
+        <h2>Replies from customers</h2>
+        <p className="muted small">
+          Recovery is a conversation, not a broadcast. Point Twilio&apos;s
+          &ldquo;when a message comes in&rdquo; field at your Tally inbound
+          endpoint and replies are handled automatically:
+        </p>
+        <pre>
+          <code>{`https://<your-tally-domain>/api/webhooks/whatsapp`}</code>
+        </pre>
+        <ul className="muted small">
+          <li>
+            <strong>&ldquo;STOP&rdquo;</strong> (or unsubscribe, cancel,
+            &ldquo;band karo&rdquo;, &ldquo;don&apos;t message me&rdquo;) opts
+            that customer out immediately and stops every open event for them.
+          </li>
+          <li>
+            <strong>&ldquo;I&apos;ll pay Friday&rdquo;</strong> becomes a
+            tracked promise-to-pay with a real due date. Tally stops chasing
+            until the day they named, then follows up on the commitment.
+            English and Hinglish both work.
+          </li>
+          <li>
+            <strong>&ldquo;I already paid&rdquo;</strong> is flagged for a human
+            to reconcile rather than argued with.
+          </li>
+          <li>
+            Anything else is recorded and left for a person. Tally does not
+            guess at a reply it did not understand.
+          </li>
+        </ul>
+        <p className="muted small">
+          Every inbound message is written to the same audit trail as outbound
+          ones, so the dashboard shows both sides of the conversation. Requests
+          are rejected unless they carry a valid Twilio signature.
+        </p>
+      </section>
+
+      <section className="section">
         <h2>The rules Tally follows</h2>
         <p className="muted small">
           These are enforced in code, not left to the agent&apos;s judgement:

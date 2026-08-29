@@ -41,6 +41,13 @@ Razorpay webhook  ─►  /api/webhooks/razorpay/[merchantId]
                          anything slow, and a slow webhook is how a bad
                          afternoon becomes a retry storm)
 
+Customer replies ►  /api/webhooks/whatsapp
+                        verify Twilio signature (reject forgeries)
+                        "STOP"            -> opt out, stop every open event
+                        "I'll pay Friday" -> tracked promise_to_pay + due date
+                        "already paid"    -> flag for a human
+                        every reply logged to the same audit trail
+
 Vercel Cron ─────►  /api/cron/worker  ─►  runWorker()
                         claim_events()   FOR UPDATE SKIP LOCKED,
                                          round-robin across merchants
@@ -180,6 +187,7 @@ src/lib/
     decide.ts              decision + template fallback
     providers/             Claude and Gemini backends behind one interface
     worker.ts              claim -> decide -> act -> record
+  inbound.ts               understanding replies: opt-out, promise-to-pay
   channels/                email (Resend), whatsapp + voice (Twilio)
 src/app/                   landing, docs, onboarding, dashboard, API routes
 scripts/                   local stack, schema push, seed, worker, batch run

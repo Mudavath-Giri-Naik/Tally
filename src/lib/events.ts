@@ -176,6 +176,73 @@ export async function recentlySentFor(
   return (data ?? []) as Action[];
 }
 
+/**
+ * Every customer reachable on this phone number.
+ *
+ * Scoped to one merchant when the inbound sender identifies one (in
+ * production each merchant has its own WhatsApp sender). On the shared
+ * sandbox the `To` number identifies nobody, so this returns every match and
+ * the caller decides - see the opt-out handling in the inbound route.
+ */
+export async function findCustomersByPhone(
+  phone: string,
+  merchantId?: string,
+): Promise<Customer[]> {
+  let q = db().from("customers").select("*").eq("phone", phone);
+  if (merchantId) q = q.eq("merchant_id", merchantId);
+  const { data, error } = await q;
+  if (error) throw new Error(`Could not look up customer: ${error.message}`);
+  return (data ?? []) as Customer[];
+}
+
+/**
+ * Honour an opt-out.
+ *
+ * The guardrails already refuse to contact an opted-out customer, but they
+ * only run when an event is next processed. Stopping their open events here
+ * too means the opt-out takes effect immediately and the dashboard tells the
+ * truth straight away, rather than showing work still queued for someone who
+ * asked to be left alone.
+ */
+export async function optOutCustomer(customerId: string): Promise<number> {
+  const { error } = await db()
+    .from("customers")
+    .update({ opted_out: true })
+    .eq("id", customerId);
+  if (error) throw new Error(`Could not opt out customer: ${error.message}`);
+
+  const { data, error: stopErr } = await db()
+    .from("events")
+    .update({
+      status: "stopped",
+      stop_reason: "customer_opted_out",
+      next_attempt_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("customer_id", customerId)
+    .in("status", ["queued", "processing"])
+    .select("id");
+  if (stopErr) {
+    throw new Error(`Could not stop events after opt-out: ${stopErr.message}`);
+  }
+  return (data ?? []).length;
+}
+
+/** The most recent event for a customer, whatever its status. */
+export async function latestEventForCustomer(
+  customerId: string,
+): Promise<RecoveryEvent | null> {
+  const { data, error } = await db()
+    .from("events")
+    .select("*")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load latest event: ${error.message}`);
+  return (data as RecoveryEvent) ?? null;
+}
+
 /** Append to the audit trail. Every decision writes one of these, always. */
 export async function recordAction(input: {
   eventId: string;
