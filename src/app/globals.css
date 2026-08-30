@@ -225,3 +225,26 @@ input[type='number']::-webkit-outer-spin-button {
     }
   }
 }
+
+/* ── scrollbars ─────────────────────────────────────────────────────────── */
+/* A thin, theme-coloured scrollbar rather than the bulky default OS one -
+   applies everywhere so the sidebar and the page body match. Still a real,
+   functional scrollbar: only its appearance changes. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}

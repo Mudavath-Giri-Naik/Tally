@@ -26,7 +26,7 @@ import {
 } from "recharts";
 import {
   IndianRupeeIcon,
-  TargetIcon,
+  WorkflowIcon,
   TriangleAlertIcon,
   SendIcon,
   ShieldCheckIcon,
@@ -45,6 +45,7 @@ import {
   BOARD_STATUSES,
   STATUS_META,
   RANGES,
+  WORKFLOW_TYPE_COUNT,
   formatDuration,
   delta,
   type Dashboard,
@@ -215,8 +216,10 @@ function MetricCard({
   icon: React.ReactNode;
   label: string;
   value: string;
-  sub?: string;
-  deltaValue: number | null;
+  /** A short explanatory line. Plain text or a composed line - never a paragraph. */
+  sub?: React.ReactNode;
+  /** Omit entirely to hide the trend row - not every card has a meaningful one. */
+  deltaValue?: number | null;
   riseIsGood?: boolean;
   spark: number[];
   colour: string;
@@ -225,29 +228,40 @@ function MetricCard({
   const id = label.replace(/\W/g, "");
 
   return (
-    <Card className="gap-0 overflow-hidden pb-0">
-      <CardHeader className="flex items-center gap-2">
+    <Card
+      size="sm"
+      className="gap-0 overflow-hidden border pb-0"
+      style={{
+        // A light tint of the card's own colour, not a flat white box - the
+        // same technique already used on the icon chip, just at a much lower
+        // strength so it reads as a wash rather than a block of colour.
+        background: `color-mix(in oklab, ${colour} 7%, var(--card))`,
+        borderColor: `color-mix(in oklab, ${colour} 22%, var(--border))`,
+      }}
+    >
+      <CardHeader className="flex items-center gap-2 pb-1">
         <div
-          className="flex size-8 shrink-0 items-center justify-center rounded-sm"
-          style={{ background: `color-mix(in oklab, ${colour} 12%, transparent)`, color: colour }}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md"
+          style={{ background: `color-mix(in oklab, ${colour} 16%, transparent)`, color: colour }}
         >
           {icon}
         </div>
-        <span className="text-2xl font-semibold tracking-tight tabular-nums">{value}</span>
+        <span className="text-xl font-semibold tracking-tight tabular-nums">{value}</span>
       </CardHeader>
-      <CardContent className="flex flex-col gap-1.5 pb-4">
+      <CardContent className="flex flex-col gap-1 pb-2.5">
         <span className="text-sm font-semibold">{label}</span>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <DeltaText value={deltaValue} riseIsGood={riseIsGood} />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {deltaValue !== undefined && <DeltaText value={deltaValue} riseIsGood={riseIsGood} />}
           {sub && <span className="text-muted-foreground text-xs">{sub}</span>}
         </div>
       </CardContent>
-      {/* Shape only - the number above carries the value, so no axes. */}
-      <ChartContainer config={SPARK_CONFIG} className="h-[46px] w-full">
-        <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+      {/* Shape only - the number above carries the value, so no axes. Kept
+          slim: this is a hint of trend, not a chart worth its own height. */}
+      <ChartContainer config={SPARK_CONFIG} className="h-[26px] w-full">
+        <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id={`sp-${id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={colour} stopOpacity={0.28} />
+              <stop offset="0%" stopColor={colour} stopOpacity={0.24} />
               <stop offset="100%" stopColor={colour} stopOpacity={0.02} />
             </linearGradient>
           </defs>
@@ -255,7 +269,7 @@ function MetricCard({
             dataKey="v"
             type="monotone"
             stroke={colour}
-            strokeWidth={1.8}
+            strokeWidth={1.6}
             fill={`url(#sp-${id})`}
             isAnimationActive={false}
             dot={false}
@@ -373,6 +387,10 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
   );
 
   const compliance = m.sent_total === 0 ? null : Math.round((m.sent_in_window / m.sent_total) * 100);
+  // Distinct event types active in this window, out of the fixed six the
+  // schema allows - "workflow" here means the kind of recovery, not a
+  // per-tenant configuration.
+  const activeWorkflows = new Set(data.rows.map((r) => r.event_type)).size;
   const prevCompliance = p.sent_total === 0 ? null : Math.round((p.sent_in_window / p.sent_total) * 100);
 
   const exportCsv = useCallback(() => {
@@ -489,14 +507,18 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
         <MetricCard
           icon={<IndianRupeeIcon className="size-4" />} colour="var(--chart-2)"
           label="Revenue recovered" value={formatINR(m.amount_recovered)}
-          sub={`${m.recovered_count} recovered`}
+          sub={
+            <>
+              of {formatINR(m.amount_total)} · <strong className="text-foreground">{m.recovery_rate}%</strong>
+            </>
+          }
           deltaValue={delta(m.amount_recovered, p.amount_recovered)} spark={spark.recovered}
         />
         <MetricCard
-          icon={<TargetIcon className="size-4" />} colour="var(--chart-4)"
-          label="Recovery rate" value={`${m.recovery_rate}%`}
-          sub={`of ${m.total_events} events`}
-          deltaValue={delta(m.recovery_rate, p.recovery_rate)} spark={spark.rate}
+          icon={<WorkflowIcon className="size-4" />} colour="var(--chart-4)"
+          label="Active workflows" value={String(activeWorkflows)}
+          sub={`of ${WORKFLOW_TYPE_COUNT} workflow types`}
+          spark={spark.rate}
         />
         <MetricCard
           icon={<TriangleAlertIcon className="size-4" />} colour="var(--chart-5)"

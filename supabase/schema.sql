@@ -712,7 +712,11 @@ create or replace function merchant_board(
   max_attempts   int,
   failed_on      timestamptz,
   recovered_at   timestamptz,
-  last_channel   text
+  last_channel   text,
+  -- The event's own type (payment_failed, cart_abandoned, ...). Fixed at six
+  -- values by the events_type_valid check constraint - this is what "Active
+  -- workflows" on the dashboard counts distinct occurrences of.
+  event_type     text
 )
 language sql stable
 as $fn$
@@ -757,7 +761,8 @@ as $fn$
          m.max_attempts,
          e.created_at,
          case when e.status = 'recovered' then e.updated_at end,
-         rc.channel
+         rc.channel,
+         e.type
   from events e
   join merchants m on m.id = e.merchant_id
   left join customers c on c.id = e.customer_id

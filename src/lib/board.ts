@@ -65,7 +65,18 @@ export interface BoardRow {
   recovered_at: string | null;
   /** The last channel that actually landed, or null if nothing has yet. */
   last_channel: Channel | null;
+  /** The event's own type - payment_failed, cart_abandoned, and so on. */
+  event_type: string;
 }
+
+/**
+ * How many distinct event types exist at all.
+ *
+ * Fixed by the `events_type_valid` check constraint in schema.sql, not
+ * per-tenant data - every merchant shares the same six. "Active workflows"
+ * counts how many of these six actually occurred in the window.
+ */
+export const WORKFLOW_TYPE_COUNT = 6;
 
 export interface BoardMetrics {
   total_events: number;
@@ -153,6 +164,7 @@ export async function boardRows(
       failed_on: String(r.failed_on),
       recovered_at: (r.recovered_at as string) ?? null,
       last_channel: (r.last_channel as Channel) ?? null,
+      event_type: String(r.event_type ?? "unknown"),
     };
   });
 }
