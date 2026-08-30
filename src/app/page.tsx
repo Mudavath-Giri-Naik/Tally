@@ -61,10 +61,13 @@ export default function HomePage() {
     <div className="bg-white">
       {/* ── hero: sky, navbar, headline, hills+dashboard reveal ── */}
       <div className="relative overflow-hidden bg-white">
-        {/* Background Image Layer - shown at its own natural size, full
-            opacity throughout, no fade mask over it. */}
+        {/* Background Image Layer - bg-cover so it always fully fills the
+            section with no gap of plain white beneath it, however tall the
+            section ends up being. Cover scales proportionally rather than
+            stretching each axis independently, so nothing distorts - it
+            crops rather than warps. Full opacity throughout, no fade mask. */}
         <div
-          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-top bg-no-repeat"
+          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-cover bg-top bg-no-repeat"
           aria-hidden="true"
         />
 
@@ -95,9 +98,9 @@ export default function HomePage() {
 
               <Link
                 href="/onboarding"
-                className="flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-1 pl-3.5 pr-1 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
+                className="flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-2 pl-3.5 pr-1 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
               >
-                <span className="inline">Connect your business</span>
+                <span className="inline">Connect now</span>
                 <span className="flex size-5 items-center justify-center rounded-full bg-white text-neutral-900">
                   <ArrowRightIcon className="size-3" strokeWidth={2.5} />
                 </span>
