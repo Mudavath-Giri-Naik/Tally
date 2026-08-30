@@ -46,25 +46,56 @@ describe("the conversation prompt", () => {
     assert.match(prompt, /different card or UPI/i);
   });
 
-  test("says plainly whether each payment is settled", () => {
-    const unpaid = buildConversePrompt(
-      ctx({ events: [makeEvent({ status: "queued", amount: 100000 })] }),
-    );
-    assert.match(unpaid, /is NOT paid/);
-
-    const paid = buildConversePrompt(
+  test("separates settled from outstanding rather than interleaving them", () => {
+    // The agent once confirmed a payment that was never confirmed, having
+    // seen one settled row in a mixed list and read the account as clear.
+    // Two labelled groups and a running total is the fix.
+    const prompt = buildConversePrompt(
       ctx({
         events: [
-          makeEvent({ status: "recovered", amount: 100000, recovered_amount: 100000 }),
+          makeEvent({ status: "queued", amount: 100000 }),
+          makeEvent({ status: "recovered", amount: 50000, recovered_amount: 50000 }),
         ],
       }),
     );
-    assert.match(paid, /IS paid/);
+    assert.match(prompt, /### OUTSTANDING/);
+    assert.match(prompt, /### SETTLED/);
+    // The outstanding total is what stops it treating one settled row as
+    // the whole account.
+    assert.match(prompt, /Total still owed: ₹1,000/);
+  });
+
+  test("says explicitly when nothing has been confirmed paid", () => {
+    // Silence here is what let the model assume; the empty case has to state
+    // the absence, and pre-empt the customer simply claiming otherwise.
+    const prompt = buildConversePrompt(
+      ctx({ events: [makeEvent({ status: "queued", amount: 100000 })] }),
+    );
+    assert.match(prompt, /confirmed no payment from this customer yet/);
+    assert.match(prompt, /whatever they may have told you/);
   });
 
   test("tells the model to invent nothing when there is no history", () => {
     const prompt = buildConversePrompt(ctx({ events: [] }));
-    assert.match(prompt, /No payment records\. Do not invent any\./);
+    assert.match(prompt, /No payment records at all\. Do not invent any\./);
+    assert.match(prompt, /nothing is currently owed/);
+  });
+
+  test("carries the earlier summary as memory, labelled as its own note", () => {
+    // Turns are capped, so without this the agent forgets anything older and
+    // re-asks questions it already asked.
+    const prompt = buildConversePrompt(
+      ctx({ earlierSummary: "They promised to pay by 30 Aug and did not." }),
+    );
+    assert.match(prompt, /## Earlier in this conversation/);
+    assert.match(prompt, /promised to pay by 30 Aug/);
+    // It must not read as something the customer said.
+    assert.match(prompt, /Treat it as memory, not as something the customer said/);
+  });
+
+  test("omits the memory section entirely when there is no summary yet", () => {
+    const prompt = buildConversePrompt(ctx({}));
+    assert.doesNotMatch(prompt, /## Earlier in this conversation/);
   });
 
   test("labels who said what, so the model can see whose turn it is", () => {

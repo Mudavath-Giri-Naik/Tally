@@ -35,6 +35,7 @@ import { sendWhatsApp } from "@/lib/channels";
 import {
   draftReply,
   conversationTurns,
+  latestSummary,
   REPLY_PREFIX,
   type ConversationContext,
 } from "@/lib/agent/converse";
@@ -319,11 +320,19 @@ async function replyToCustomer(
     return;
   }
 
+  const [turns, earlierSummary] = await Promise.all([
+    conversationTurns(customer.id),
+    // What the agent already knows about this customer from before the turns
+    // above - without it, its memory stops dead at the turn cap.
+    latestSummary(customer.id).catch(() => null),
+  ]);
+
   const ctx: ConversationContext = {
     merchant,
     customer,
     events,
-    turns: await conversationTurns(customer.id),
+    turns,
+    earlierSummary,
   };
 
   const outcome = await draftReply(ctx);
@@ -446,30 +455,49 @@ async function performScriptedMove(
   let bookedEventId: string | null = null;
 
   if (move.kind === "promise") {
-    // The promise is the record; the message merely confirms it.
-    const promise = await ingestEvent({
-      merchantId: customer.merchant_id,
-      providerEventId: null,
-      type: "promise_to_pay",
-      reason: "invoice_unpaid",
-      amount: anchor?.amount ?? null,
-      dueDate: move.dueDate,
-      customerName: customer.name,
-      customerEmail: customer.email,
-      customerPhone: customer.phone,
-      metadata: {
-        source: "whatsapp_reply",
-        promised_on: new Date().toISOString().slice(0, 10),
-        due_date: move.dueDate,
-        reply_text: body.slice(0, 500),
-        origin_event_id: anchor?.id ?? null,
-      },
-    });
     const { updateEvent } = await import("@/lib/events");
-    await updateEvent(promise.id, {
-      next_attempt_at: new Date(`${move.dueDate}T09:00:00Z`).toISOString(),
-    });
-    bookedEventId = promise.id;
+
+    // A customer who says "I'll pay Friday" and then "actually Monday" has
+    // ONE promise that moved, not two promises. Creating a second row each
+    // time is what filled the dashboard with what looked like duplicate
+    // customers - one line per restatement of the same commitment.
+    const existingPromise = events.find(
+      (e) =>
+        e.type === "promise_to_pay" &&
+        (e.status === "queued" || e.status === "processing"),
+    );
+
+    if (existingPromise) {
+      await updateEvent(existingPromise.id, {
+        due_date: move.dueDate,
+        next_attempt_at: new Date(`${move.dueDate}T09:00:00Z`).toISOString(),
+      });
+      bookedEventId = existingPromise.id;
+    } else {
+      const promise = await ingestEvent({
+        merchantId: customer.merchant_id,
+        providerEventId: null,
+        type: "promise_to_pay",
+        reason: "invoice_unpaid",
+        amount: anchor?.amount ?? null,
+        dueDate: move.dueDate,
+        customerName: customer.name,
+        customerEmail: customer.email,
+        customerPhone: customer.phone,
+        metadata: {
+          source: "whatsapp_reply",
+          promised_on: new Date().toISOString().slice(0, 10),
+          due_date: move.dueDate,
+          reply_text: body.slice(0, 500),
+          origin_event_id: anchor?.id ?? null,
+        },
+      });
+      await updateEvent(promise.id, {
+        next_attempt_at: new Date(`${move.dueDate}T09:00:00Z`).toISOString(),
+      });
+      bookedEventId = promise.id;
+    }
+
     text = move.text;
     prompt = "promise_to_pay_recorded";
   } else {

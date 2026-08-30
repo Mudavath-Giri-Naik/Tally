@@ -43,35 +43,51 @@ export const INBOUND_PREFIX = "[inbound] ";
 export const REPLY_PREFIX = "[reply] ";
 export const SUMMARY_PREFIX = "[conversation] ";
 
-export const CONVERSE_SYSTEM_PROMPT = `You are the customer-support voice of an Indian business, replying on WhatsApp to a customer about a payment of theirs that did not go through.
+export const CONVERSE_SYSTEM_PROMPT = `You are a recovery agent for an Indian business, replying on WhatsApp to a customer whose payment did not go through. Your job is to actually get the money back - not merely to answer questions politely.
 
-You are having a real conversation. Answer what they actually asked.
+## Language
+
+- Reply in **English by default**.
+- Mirror the customer: if they write to you in Hindi, Hinglish, Tamil, or anything else, reply in that same language from then on. If they switch, you switch.
+- Do not volunteer Hindi or Hinglish to someone who has only written to you in English. Guessing at someone's language is a worse first impression than plain English.
 
 ## Who you are
 
 - You speak as the business, never as "Tally", never as "an AI assistant", never as a bot.
 - Warm, direct, and brief. This is WhatsApp on a phone, not an email. Two or three sentences is usually right.
-- Natural Hinglish is welcome where it reads naturally for an Indian consumer. Do not force it.
 - No greetings that waste the first line, no sign-offs, no markdown, no bullet lists.
 
 ## What you know
 
-You are given this customer's real payment history below: what they owe, why it failed, what has already been sent to them, and what they have already said. That is your source of truth.
+The facts below are your only source of truth: what they owe, why it failed, what has already been sent, and what has already been said. Each payment is numbered and marked either OUTSTANDING or SETTLED.
 
-- When the answer is in the facts, answer it directly and specifically.
-- When something is genuinely not in the facts, say you will check rather than filling the gap with a plausible guess. A customer catching you in an invented order number costs the business more than a short delay.
-- Never state that a payment has succeeded unless the facts below say it was recovered. Payment status comes from the payment provider, not from what either of you hopes.
+- Answer from those facts, specifically. Quote the actual amount and the actual reason.
+- If something genuinely is not in the facts, say you will check rather than inventing it.
+- Read the conversation history before replying. If you already asked something and they answered, do not ask again. If they already promised a date, refer to that date rather than asking afresh.
 
-## Handling the awkward ones
+## Payment status - the rule you must not break
 
-- If they are angry, do not match it and do not grovel. Acknowledge the problem in one clause, then be useful.
-- If they say they already paid, take it seriously: tell them it will be checked against the provider's records, and set needs_human.
-- If they want something you cannot look up or authorise on the spot, say what you can do and set needs_human so a person picks it up.
-- If they ask to stop being contacted, tell them they can reply STOP and it takes effect immediately.
+**A customer telling you they have paid is not evidence that they have paid.** Only the provider confirms payments, and the facts below reflect what the provider has actually confirmed.
+
+- NEVER say "we received your payment", "thank you for paying", or anything that treats an unconfirmed payment as settled - not even if they insist, and not even to be polite.
+- If they claim to have paid something the facts still show as OUTSTANDING, believe them *provisionally* and say you will verify. Something like: "Thanks - I can't see it on our side yet. It can take a little time to show. If you have a reference number, send it and I'll get it checked." Then set needs_human.
+- Never apologise for the payment having failed as though it were confirmed-paid. It failed; that is the fact.
+- If a payment IS marked SETTLED in the facts, you may acknowledge that one - but be precise about which one, and mention any that remain OUTSTANDING.
+
+## Actually recovering the money
+
+You are trying to close this, not just be pleasant. In every reply, move it forward:
+
+- Ask for a specific commitment - a date, or a payment now.
+- Offer the payment link when it would help. Say the amount every time.
+- If they say "later" with no date, ask which day. A promise without a date is not a promise.
+- If they raise an objection - too expensive, did not order it, card issue - address that specific objection, then return to the payment.
+- Be persistent without being rude. Never threaten, never shame, never imply bad faith.
+- If they are genuinely refusing, or something needs a human decision, stop pushing and set needs_human.
 
 ## needs_human
 
-Set it to true whenever a person at the business should read this thread afterwards - a claim to have paid, a complaint, a request you could not fully answer, anything about a refund or a dispute. It does not stop you replying; it flags the thread.`;
+Set it to true whenever a person should read this thread afterwards - a claim to have paid, a complaint, a refund or dispute, a request you could not fully answer, or a customer who is clearly upset. It does not stop you replying; it flags the thread.`;
 
 export const SUMMARY_SYSTEM_PROMPT = `You summarise a finished WhatsApp conversation between an Indian business and a customer about a failed payment.
 
@@ -95,6 +111,16 @@ export interface ConversationContext {
   customer: Customer;
   events: RecoveryEvent[];
   turns: Turn[];
+  /**
+   * The agent's own note about everything that happened before the turns
+   * below - written by the summary sweep once a thread goes quiet.
+   *
+   * Without this the agent's memory is only as long as MAX_TURNS_IN_CONTEXT:
+   * anything older simply vanished, so it would re-ask questions it had
+   * already asked and forget commitments already made. This is the compressed
+   * version of that lost history.
+   */
+  earlierSummary?: string | null;
 }
 
 /**
@@ -119,33 +145,61 @@ export function buildConversePrompt(ctx: ConversationContext): string {
   lines.push(`Email: ${customer.email ?? "not on file"}`);
   lines.push("");
 
-  lines.push(`## Their payments with this business`);
-  if (events.length === 0) {
-    lines.push(`No payment records. Do not invent any.`);
-  }
-  for (const e of events) {
+  // Split rather than interleaved, and totalled: the agent confirming a
+  // payment that was never confirmed traces back to it seeing one settled
+  // row in a mixed list and treating the whole account as clear.
+  const settled = events.filter((e) => e.status === "recovered");
+  const outstanding = events.filter((e) => e.status !== "recovered");
+  const owed = outstanding.reduce((sum, e) => sum + (e.amount ?? 0), 0);
+
+  const describe = (e: RecoveryEvent, i: number, label: string) => {
     const profile = e.reason ? profileFor(e.reason) : null;
     lines.push(
-      `- ${formatINR(e.amount)} · ${e.type.replace(/_/g, " ")} · status: ${e.status}`,
+      `${label} ${i}. ${formatINR(e.amount)} · ${e.type.replace(/_/g, " ")} · raised ${e.created_at.slice(0, 10)}`,
     );
     if (profile) {
-      lines.push(`  why it failed: ${profile.label} (${e.reason})`);
-      lines.push(`  what fixes it: ${profile.remedy}`);
+      lines.push(`   why it failed: ${profile.label} (${e.reason})`);
+      lines.push(`   what fixes it: ${profile.remedy}`);
       lines.push(
-        `  can a retry of the same method work? ${profile.retryable ? "yes" : "no - they need a different card or UPI"}`,
+        `   can a retry of the same method work? ${profile.retryable ? "yes" : "no - they need a different card or UPI"}`,
       );
     }
-    if (e.status === "recovered") {
-      lines.push(
-        `  this one IS paid - the provider confirmed ${formatINR(e.recovered_amount ?? e.amount)}.`,
-      );
-    } else {
-      lines.push(`  this one is NOT paid as far as the provider has told us.`);
-    }
-    if (e.due_date) lines.push(`  due: ${e.due_date}`);
-    lines.push(`  raised: ${e.created_at.slice(0, 10)}, attempts so far: ${e.attempts}`);
+    if (e.due_date) lines.push(`   promised for: ${e.due_date}`);
+    lines.push(`   attempts so far: ${e.attempts}`);
+  };
+
+  lines.push(`## Their payments with this business`);
+  if (events.length === 0) {
+    lines.push(`No payment records at all. Do not invent any.`);
   }
+
   lines.push("");
+  lines.push(
+    `### OUTSTANDING - the provider has NOT confirmed these. Total still owed: ${formatINR(owed)}`,
+  );
+  if (outstanding.length === 0) {
+    lines.push(`(none - nothing is currently owed)`);
+  }
+  outstanding.forEach((e, i) => describe(e, i + 1, "OUTSTANDING"));
+
+  lines.push("");
+  lines.push(`### SETTLED - the provider confirmed these were actually paid`);
+  if (settled.length === 0) {
+    lines.push(
+      `(none - the provider has confirmed no payment from this customer yet, whatever they may have told you)`,
+    );
+  }
+  settled.forEach((e, i) => describe(e, i + 1, "SETTLED"));
+  lines.push("");
+
+  if (ctx.earlierSummary) {
+    lines.push(`## Earlier in this conversation`);
+    lines.push(
+      `Your own note on what happened before the messages below. Treat it as memory, not as something the customer said:`,
+    );
+    lines.push(ctx.earlierSummary);
+    lines.push("");
+  }
 
   lines.push(`## The conversation so far`);
   lines.push(`Oldest first. The last line is what you are replying to.`);
@@ -220,6 +274,28 @@ export async function conversationTurns(
     });
   }
   return turns.reverse();
+}
+
+/**
+ * The most recent summary written about this customer's conversation.
+ *
+ * Read back deliberately: the turns list is capped, so without this the agent
+ * forgets anything older than that cap. The summary is what the sweep wrote
+ * precisely so that history survives compression.
+ */
+export async function latestSummary(customerId: string): Promise<string | null> {
+  const { data, error } = await db()
+    .from("actions")
+    .select("message, events!inner(customer_id)")
+    .eq("events.customer_id", customerId)
+    .like("message", `${SUMMARY_PREFIX}%`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) return null;
+
+  const row = (data ?? [])[0] as Record<string, any> | undefined;
+  if (!row?.message) return null;
+  return String(row.message).slice(SUMMARY_PREFIX.length).trim() || null;
 }
 
 /** How many replies this customer has already drawn today. */

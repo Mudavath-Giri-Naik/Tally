@@ -286,6 +286,10 @@ export async function updateEvent(
       | "recovered_amount"
       | "claimed_by"
       | "claimed_at"
+      // A promise-to-pay whose date the customer later moves is the same
+      // promise on a new day, not a second promise - so the date has to be
+      // updatable in place rather than only settable at creation.
+      | "due_date"
     >
   >,
 ): Promise<RecoveryEvent> {
