@@ -87,9 +87,19 @@ describe("promise-to-pay detection", () => {
 
   test("an intent to pay with no date is NOT a trackable promise", () => {
     // Inventing a deadline the customer never gave would be worse than
-    // leaving it for a human.
-    assert.equal(reply("I will pay").kind, "other");
-    assert.equal(reply("ok will pay soon").kind, "other");
+    // asking for one. It is called out separately from "other" so the caller
+    // can ask which day instead of escalating a perfectly answerable message.
+    assert.equal(reply("I will pay").kind, "promise_no_date");
+    assert.equal(reply("ok will pay soon").kind, "promise_no_date");
+    // An intention stated without a modal verb still counts as one.
+    assert.equal(reply("I want to pay later bro").kind, "promise_no_date");
+    assert.equal(reply("I need to pay this").kind, "promise_no_date");
+  });
+
+  test("\"now\" is a date, not a missing one", () => {
+    // Asking "which day?" of someone who just said they are paying now reads
+    // as though nobody was listening.
+    assert.equal(reply("Bro I will pay now").kind, "promise_to_pay");
   });
 
   test("a date with no intent to pay is not a promise either", () => {

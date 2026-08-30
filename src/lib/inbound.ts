@@ -14,6 +14,12 @@
 export type InboundIntent =
   | { kind: "opt_out"; matched: string }
   | { kind: "promise_to_pay"; dueDate: string; matched: string }
+  /**
+   * They intend to pay but named no day. Still not a trackable promise - but
+   * it is not nothing either, and the right response is to ask which day
+   * rather than to guess one or to hand the whole thing to a human.
+   */
+  | { kind: "promise_no_date"; matched: string }
   | { kind: "already_paid"; matched: string }
   | { kind: "other" };
 
@@ -69,6 +75,11 @@ const PAY_INTENT: RegExp[] = [
   /\b(?:pay|paying|payment)\b.*\b(?:on|by|after|tomorrow|today|tonight|next|this)\b/,
   /\b(?:on|by)\b.*\b(?:i|we)\s+(?:will\s+)?pay\b/,
   /\bwill\s+(?:be\s+)?(?:paying|transferring|sending)\b/,
+  // "I want to pay later", "I need to clear this" - an intention stated
+  // without a modal verb, which every pattern above requires.
+  /\b(?:i|we)?\s*(?:want|wanna|need)\s+to\s+(?:pay|clear|settle|make\s+the\s+payment)\b/,
+  /\bpay(?:ing|ment)?\b[^.]{0,20}\blater\b/,
+  /\blater\b[^.]{0,20}\bpay\b/,
   /\bpay\s+(?:it|you|this)?\s*(?:back)?\s*(?:on|by|tomorrow|today|tonight|next)\b/,
   // Hinglish
   /\b(?:pay|payment|paisa|paise)\b.*\b(?:kar|kr)\s*(?:dunga|dungi|denge|doonga|dena|dunga)\b/,
@@ -142,7 +153,10 @@ export function extractDueDate(
   if (/\btomorrow\b/.test(t) || /\btmrw\b/.test(t) || /\btmr\b/.test(t)) return plusDays(1);
   // In a payment promise, Hindi "kal" means tomorrow, not yesterday.
   if (/\bkal\b/.test(t)) return plusDays(1);
-  if (/\b(?:today|tonight|abhi|aaj)\b/.test(t)) return plusDays(0);
+  // "now" is a date: it means today. Treating it as no-date-given would
+  // make the agent ask "which day?" of someone who just said they are
+  // paying right now.
+  if (/\b(?:today|tonight|abhi|aaj|now)\b/.test(t)) return plusDays(0);
 
   // "in 3 days", "within 2 days", "3 din me"
   const inDays = t.match(/\b(?:in|within|after)\s+(\d{1,2})\s*(?:days?|din)\b/) ??
@@ -269,8 +283,9 @@ export function classifyReply(
         matched: text.match(intent)?.[0] ?? text,
       };
     }
-    // Intent to pay but no date named. Not trackable as a commitment, so it
-    // falls through rather than inventing a deadline the customer never gave.
+    // Intent to pay but no date named. Never invent the deadline: say so, and
+    // let the caller ask for one.
+    return { kind: "promise_no_date", matched: text.match(intent)?.[0] ?? text };
   }
 
   return { kind: "other" };

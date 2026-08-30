@@ -39,6 +39,12 @@ import {
   type ConversationContext,
 } from "@/lib/agent/converse";
 import type { AgentReply } from "@/lib/agent/providers";
+import {
+  decideMove,
+  pendingPrompt,
+  type DialogueMove,
+} from "@/lib/agent/dialogue";
+import { classifyReply as classify } from "@/lib/inbound";
 import { db } from "@/lib/supabase";
 import type { Customer, Merchant, RecoveryEvent } from "@/lib/types";
 
@@ -183,7 +189,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (intent.kind !== "opt_out") {
       after(async () => {
         for (const customer of customers) {
-          await replyToCustomer(customer).catch((err) => {
+          await replyToCustomer(customer, body).catch((err) => {
             // The inbound message is already recorded either way, so a failed
             // reply degrades to "a human answers this one".
             console.error("[whatsapp-in] reply failed", {
@@ -329,7 +335,7 @@ export async function GET(): Promise<NextResponse> {
  * Runs after the webhook has answered Twilio, so nothing here is on the
  * critical path and a failure costs a reply rather than a 500.
  */
-async function replyToCustomer(customer: Customer): Promise<void> {
+async function replyToCustomer(customer: Customer, body: string): Promise<void> {
   if (!customer.phone) return;
 
   const merchant = await getMerchant(customer.merchant_id);
@@ -344,6 +350,24 @@ async function replyToCustomer(customer: Customer): Promise<void> {
     .limit(10);
   if (error) throw new Error(`Could not load their events: ${error.message}`);
   const events = (data ?? []) as RecoveryEvent[];
+
+  // Most turns in a dunning conversation are not open-ended - a greeting wants
+  // a menu, a menu choice wants the thing it selected, "I'll pay later" wants
+  // one question back. Those are answered from a script: no tokens, and the
+  // same input always produces the same effect.
+  const move = decideMove({
+    merchant,
+    customer,
+    events,
+    body,
+    intent: classify(body, new Date(), merchant.timezone),
+    pending: await pendingPrompt(customer.id),
+  });
+
+  if (move.kind !== "converse") {
+    await performScriptedMove(move, merchant, customer, events, body);
+    return;
+  }
 
   const ctx: ConversationContext = {
     merchant,
@@ -419,6 +443,123 @@ async function replyToCustomer(customer: Customer): Promise<void> {
         : reply.needs_human
           ? "reply_needs_human"
           : undefined,
+    },
+  });
+}
+
+/**
+ * Send a scripted move and record it.
+ *
+ * The `prompt` on the move is written to the action's guardrail, which is how
+ * the next inbound message knows what question it is answering - a menu that
+ * is not recorded is a menu whose replies mean nothing.
+ */
+async function performScriptedMove(
+  move: Exclude<DialogueMove, { kind: "converse" }>,
+  merchant: Merchant,
+  customer: Customer,
+  events: RecoveryEvent[],
+  body: string,
+): Promise<void> {
+  const anchor = events[0];
+
+  if (move.kind === "opt_out") {
+    // Reached only when a menu number selected it; a typed STOP was already
+    // handled inline. Either way the customer is not messaged again, so there
+    // is no confirmation to send.
+    const stopped = await optOutCustomer(customer.id);
+    if (anchor) {
+      await recordAction({
+        eventId: anchor.id,
+        merchantId: customer.merchant_id,
+        channel: null,
+        message: null,
+        outcome: "no_action",
+        decision: {
+          root_cause: anchor.reason ?? "unknown",
+          intervention: "stop",
+          channel: null,
+          rationale:
+            `Customer chose "stop these messages" from the menu. Opted out and ` +
+            `stopped ${stopped} open event(s). They will not be contacted again.`,
+          source: "guardrail",
+          guardrail: "customer_opted_out",
+        },
+      });
+    }
+    console.info("[whatsapp-in] opt-out via menu", { customer: customer.id, stopped });
+    return;
+  }
+
+  let text: string;
+  let prompt: string | undefined;
+  let bookedEventId: string | null = null;
+
+  if (move.kind === "promise") {
+    // The promise is the record; the message merely confirms it.
+    const promise = await ingestEvent({
+      merchantId: customer.merchant_id,
+      providerEventId: null,
+      type: "promise_to_pay",
+      reason: "invoice_unpaid",
+      amount: anchor?.amount ?? null,
+      dueDate: move.dueDate,
+      customerName: customer.name,
+      customerEmail: customer.email,
+      customerPhone: customer.phone,
+      metadata: {
+        source: "whatsapp_reply",
+        promised_on: new Date().toISOString().slice(0, 10),
+        due_date: move.dueDate,
+        reply_text: body.slice(0, 500),
+        origin_event_id: anchor?.id ?? null,
+      },
+    });
+    const { updateEvent } = await import("@/lib/events");
+    await updateEvent(promise.id, {
+      next_attempt_at: new Date(`${move.dueDate}T09:00:00Z`).toISOString(),
+    });
+    bookedEventId = promise.id;
+    text = move.text;
+    prompt = "promise_to_pay_recorded";
+  } else {
+    text = move.text;
+    prompt = move.prompt;
+  }
+
+  const result = await sendWhatsApp({
+    merchantName: merchant.business_name,
+    recipient: { name: customer.name, email: customer.email, phone: customer.phone },
+    subject: null,
+    body: text,
+    link: null,
+  });
+
+  const eventId = bookedEventId ?? anchor?.id;
+  if (!eventId) return;
+
+  await recordAction({
+    eventId,
+    merchantId: customer.merchant_id,
+    channel: "whatsapp",
+    message: `${REPLY_PREFIX}${text}`,
+    outcome: result.ok ? "sent" : "failed",
+    response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
+    sentAt: new Date().toISOString(),
+    decision: {
+      root_cause: anchor?.reason ?? "unknown",
+      intervention:
+        prompt === "reply_needs_human" || prompt === "customer_claims_paid"
+          ? "escalate_human"
+          : "send_message",
+      channel: "whatsapp",
+      rationale:
+        move.kind === "promise"
+          ? `Customer committed to pay on ${move.dueDate}. Tracked as a promise-to-pay; no chasing until then.`
+          : `Scripted reply. Awaiting: ${prompt ?? "nothing in particular"}.`,
+      // "schedule" rather than "agent": no model chose this, a rule did.
+      source: "schedule",
+      guardrail: prompt,
     },
   });
 }

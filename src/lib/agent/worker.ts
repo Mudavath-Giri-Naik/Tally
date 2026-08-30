@@ -26,6 +26,7 @@ import {
   SUMMARY_PREFIX,
   type ConversationContext,
 } from "./converse";
+import { menuBlock } from "../menu";
 import { createRetryLink, retryLinkReference } from "../razorpay";
 import { profileFor } from "../classify";
 import { decide } from "./decide";
@@ -314,11 +315,19 @@ async function processEvent(
     };
     const link = await transport.createLink(merchant, event, recipient);
 
+    // First WhatsApp contact carries the menu, so the customer has a way in
+    // that does not require them to compose a sentence. Only the first: a menu
+    // repeated on every nudge reads as an automated system talking past them.
+    const body =
+      decision.channel === "whatsapp" && event.attempts === 0
+        ? `${decision.message}\n\n${menuBlock("root")}`
+        : decision.message;
+
     const result = await transport.dispatch(decision.channel!, {
       merchantName: merchant.business_name,
       recipient,
       subject: decision.subject,
-      body: decision.message,
+      body,
       link,
     });
 
