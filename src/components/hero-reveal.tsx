@@ -49,13 +49,14 @@ export function HeroReveal() {
           <img
             src="/dashboard.png"
             alt="Tally's live recovery dashboard"
-            className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl ring-1 ring-black/10 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl"
+            className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl border-[8px] border-white/80 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl sm:border-[12px] transition-transform duration-500 ease-out"
             style={{
               // Always fully opaque - being hidden is the hills' job, done by
               // sitting on top of it, not by fading the image itself. Only
               // position and scale animate, so anything peeking out from
               // behind the hills at any point in the scroll reads crisp.
-              transform: `translateY(${(1 - progress) * 56}px) scale(${0.92 + progress * 0.08})`,
+              transform: `translateY(-100px) scale(${0.60 + progress * 0.40})`,
+              transformOrigin: "top center",
             }}
           />
         </div>
@@ -64,18 +65,20 @@ export function HeroReveal() {
           src="/bottom-hills.png"
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 w-screen max-w-none select-none"
+          className="pointer-events-none absolute inset-x-0 bottom-0 w-screen max-w-none select-none transition-transform duration-500 ease-out"
           style={{
             left: "50%",
             // translateY is a percentage of the image's OWN rendered height,
-            // not the container's. -60% at rest lifts it well above its
+            // not the container's. -85% at rest lifts it well above its
             // natural bottom-anchored position so it covers most of the
             // dashboard; +115% at full scroll pushes it a full height plus a
             // margin past where it started, clearing the section completely
             // rather than merely sliding to a lower resting spot.
-            transform: `translateX(-50%) translateY(${-60 + progress * 175}%)`,
+            transform: `translateX(-50%) translateY(${-85 + progress * 200}%)`,
           }}
         />
+        {/* Gradient mask to smoothly blend the bottom of the hills into the white section below */}
+        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none" />
       </div>
     </div>
   );

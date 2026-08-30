@@ -5,6 +5,7 @@ import {
   StarIcon,
   LockIcon,
   ZapIcon,
+  Sparkles,
 } from "lucide-react";
 
 import { HeroReveal } from "@/components/hero-reveal";
@@ -59,98 +60,100 @@ export default function HomePage() {
   return (
     <div className="bg-white">
       {/* ── hero: sky, navbar, headline, hills+dashboard reveal ── */}
-      <div className="relative overflow-hidden bg-gradient-to-b from-sky-200 via-sky-100 to-white">
-        {/* soft cloud blobs - no separate sky asset was provided, so the sky
-            is built from gradients and blurred shapes instead of an image */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-          <div className="absolute -left-24 top-10 h-56 w-72 rounded-full bg-white/70 blur-3xl" />
-          <div className="absolute right-[-4rem] top-24 h-64 w-80 rounded-full bg-white/60 blur-3xl" />
-          <div className="absolute left-1/3 top-4 h-32 w-64 rounded-full bg-white/50 blur-2xl" />
+      <div className="relative overflow-hidden bg-white">
+        {/* Background Image Layer */}
+        <div 
+          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-[length:100%_auto] bg-top bg-no-repeat"
+          aria-hidden="true" 
+        >
+          {/* Gradient mask to blend the background image seamlessly into the white background below */}
+          <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-white via-white/50 to-transparent" />
         </div>
 
         <div className="relative">
           {/* ── navbar ── */}
-          <header className="mx-auto max-w-6xl px-4 pt-6 sm:px-6">
-            <div className="flex items-center justify-between gap-3 rounded-full border border-black/5 bg-white/90 px-4 py-2.5 shadow-lg shadow-sky-900/5 backdrop-blur sm:px-6">
-              <Link href="/" className="flex shrink-0 items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
-                  <ShieldCheckIcon className="size-4" />
+          <header className="mx-auto flex justify-center px-4 pt-6 sm:px-6">
+            <div className="flex w-full max-w-[900px] items-center justify-between gap-8 rounded-[1.5rem] border-[6px] border-white/50 bg-white px-3 py-2.5 shadow-sm backdrop-blur sm:px-4">
+              <Link href="/" className="flex shrink-0 items-center gap-2.5">
+                <span className="flex size-9 items-center justify-center rounded-[0.4rem] bg-[#1a1a1a] text-white">
+                  <ShieldCheckIcon className="size-5" strokeWidth={2.5} />
                 </span>
-                <span className="text-lg font-bold tracking-tight text-neutral-900">
+                <span className="text-[1.35rem] font-bold tracking-tight text-neutral-900">
                   Tally
                 </span>
               </Link>
 
-              <nav className="hidden items-center gap-8 text-sm font-medium text-neutral-600 md:flex">
-                <a href="#how-it-works" className="hover:text-neutral-900">
+              <nav className="hidden items-center gap-8 text-[15px] font-semibold text-neutral-600 md:flex">
+                <a href="#how-it-works" className="transition-colors hover:text-neutral-900">
                   How it works
                 </a>
-                <a href="#features" className="hover:text-neutral-900">
+                <a href="#features" className="transition-colors hover:text-neutral-900">
                   Features
                 </a>
-                <Link href="/docs" className="hover:text-neutral-900">
+                <Link href="/docs" className="transition-colors hover:text-neutral-900">
                   Docs
                 </Link>
               </nav>
 
               <Link
                 href="/onboarding"
-                className="flex shrink-0 items-center gap-1.5 rounded-full bg-neutral-900 py-2 pl-4 pr-1.5 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                className="flex shrink-0 items-center gap-3 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-1.5 pl-5 pr-1.5 text-[15px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
               >
-                <span className="hidden sm:inline">Connect your business</span>
-                <span className="sm:hidden">Connect</span>
-                <span className="flex size-6 items-center justify-center rounded-full bg-white text-neutral-900">
-                  <ArrowRightIcon className="size-3.5" />
+                <span className="inline">Connect your business</span>
+                <span className="flex size-7 items-center justify-center rounded-full bg-white text-neutral-900">
+                  <ArrowRightIcon className="size-4" strokeWidth={2.5} />
                 </span>
               </Link>
             </div>
           </header>
 
           {/* ── headline ── */}
-          <div className="mx-auto max-w-4xl px-4 pb-8 pt-16 text-center sm:px-6 sm:pt-24">
-            <h1 className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[2.6rem] leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-6xl md:text-7xl">
+          <div className="mx-auto max-w-5xl px-4 pb-32 pt-16 text-center sm:px-6 sm:pt-24 sm:pb-48">
+            <h1 className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[2.6rem] leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-6xl md:text-7xl lg:text-[5.5rem]">
               Revenue
-              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-950 align-middle shadow-lg sm:size-14 md:size-16">
-                <ZapIcon className="size-6 text-white sm:size-7 md:size-8" fill="currentColor" />
+              <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-[1.5rem] bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-2xl shadow-slate-900/30 sm:size-16 md:size-[4.5rem] lg:size-[5rem] -rotate-6 border-t border-slate-500">
+                <span className="absolute top-2 left-3"><Sparkles className="size-3 sm:size-4 md:size-5 text-white/80" fill="currentColor" /></span>
+                <span className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-200 tracking-tighter">AI</span>
               </span>
               Recovery
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-base text-neutral-600 sm:text-lg">
-              AI that finds out why a payment failed — and gets it back for
-              you, automatically.
+              AI that finds out why a payment failed — and gets it back for you, automatically.
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link
-                href="/onboarding"
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-b from-sky-500 to-blue-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-blue-600/30 transition hover:from-sky-400 hover:to-blue-500 sm:w-auto"
-              >
-                Connect your business
-                <span className="flex size-6 items-center justify-center rounded-full bg-white/25">
-                  <ArrowRightIcon className="size-3.5" />
-                </span>
-              </Link>
+              <div className="rounded-full bg-[#4A85F6]/20 p-1">
+                <Link
+                  href="/onboarding"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[#4A85F6] px-6 py-3 text-base font-semibold text-white shadow-md transition hover:bg-[#366AE6] sm:w-auto border border-[#76A1F9]"
+                >
+                  Connect your business
+                  <span className="flex size-6 items-center justify-center rounded-full bg-white text-[#4A85F6]">
+                    <ArrowRightIcon className="size-3.5" strokeWidth={3} />
+                  </span>
+                </Link>
+              </div>
               <Link
                 href="/dashboard/mandate-2"
-                className="w-full rounded-full border border-neutral-200 bg-white px-6 py-3.5 text-center text-base font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 sm:w-auto"
+                className="w-full rounded-full border border-transparent bg-white px-8 py-4 text-center text-base font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 sm:w-auto"
               >
-                View live demo
+                View demo
               </Link>
             </div>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-neutral-600">
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-neutral-600 font-medium">
               <span className="flex items-center gap-1.5">
                 <StarIcon className="size-4 text-amber-500" fill="currentColor" />
                 Guardrail-checked every send
               </span>
               <span className="hidden text-neutral-300 sm:inline">|</span>
               <span className="flex items-center gap-1.5">
-                <LockIcon className="size-4 text-emerald-600" />
+                <LockIcon className="size-4 text-emerald-500" />
                 AES-256 encrypted keys
               </span>
               <span className="hidden text-neutral-300 sm:inline">|</span>
               <span className="flex items-center gap-1.5">
-                <ZapIcon className="size-4 text-orange-500" fill="currentColor" />
+                <ZapIcon className="size-4 text-red-500" fill="currentColor" />
                 Live within five minutes
               </span>
             </div>
