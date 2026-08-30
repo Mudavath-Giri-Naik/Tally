@@ -1,10 +1,11 @@
 /**
- * The recovery board: what the dashboard's main view is made of.
+ * The dashboard's data layer.
  *
+ * Everything on the page comes from here, for one merchant and one date range.
  * The six statuses are derived in SQL (see merchant_board in schema.sql), not
- * here, because the table, the tab counts and the metric cards all have to
- * agree about what "needs a human" means - and three copies of that rule is
- * three chances for them to drift apart.
+ * in the UI, because the table, the tab counts, the status cards and the metric
+ * cards all have to agree about what "needs a human" means - and four copies of
+ * that rule is four chances for them to drift apart.
  */
 import { db } from "./supabase";
 import { profileFor } from "./classify";
@@ -27,7 +28,6 @@ export const BOARD_STATUSES: BoardStatus[] = [
   "opted_out",
 ];
 
-/** Label and dot colour token for each status. Order is the tab order. */
 export const STATUS_META: Record<
   BoardStatus,
   { label: string; token: string; icon: string }
@@ -41,6 +41,15 @@ export const STATUS_META: Record<
   // both grey, and colour alone would make them indistinguishable.
   opted_out: { label: "Opted out", token: "stopped", icon: "⊘" },
 };
+
+/** The windows the picker offers, in days. */
+export const RANGES = [7, 30, 90] as const;
+export type RangeDays = (typeof RANGES)[number];
+
+export function rangeDays(raw: string | undefined): RangeDays {
+  const n = Number(raw);
+  return (RANGES as readonly number[]).includes(n) ? (n as RangeDays) : 7;
+}
 
 export interface BoardRow {
   event_id: string;
@@ -63,27 +72,69 @@ export interface BoardMetrics {
   recovered_count: number;
   amount_total: number;
   amount_recovered: number;
+  amount_at_risk: number;
   recovery_rate: number;
-  /** Null when nothing has been recovered yet - shown as "-", never as zero. */
   avg_recovery_seconds: number | null;
   sent_total: number;
   sent_in_window: number;
   needs_human: number;
+  escalated_voice: number;
+  stopped: number;
+  promise_active: number;
   top_causes: Array<{ reason: RootCause; label: string; count: number }>;
 }
 
-export interface Board {
+export interface DayPoint {
+  day: string;
+  events: number;
+  recovered: number;
+  amount_recovered: number;
+  amount_at_risk: number;
+  sent: number;
+  sent_in_window: number;
+}
+
+export interface ChannelRecovery {
+  channel: Channel;
+  sent: number;
+  reached: number;
+  recovered: number;
+  /** Of the events reached on this channel, how many came good. */
+  rate: number;
+}
+
+export interface TodayStats {
+  interventions_today: number;
+  events_today: number;
+  recovered_today: number;
+  /** Of today's events, the share recovered. Null when nothing arrived. */
+  recovery_rate_today: number | null;
+}
+
+export interface Dashboard {
+  days: RangeDays;
+  from: string;
+  to: string;
   rows: BoardRow[];
   metrics: BoardMetrics;
+  /** The same figures for the equal-length window immediately before. */
+  previous: BoardMetrics;
+  series: DayPoint[];
+  channels: ChannelRecovery[];
+  today: TodayStats;
 }
+
+/* ── loaders ─────────────────────────────────────────────────────────────── */
 
 export async function boardRows(
   merchantId: string,
-  days = 90,
+  since: string,
+  until: string | null = null,
 ): Promise<BoardRow[]> {
   const { data, error } = await db().rpc("merchant_board", {
     p_merchant_id: merchantId,
-    p_since: sinceIso(days),
+    p_since: since,
+    p_until: until,
   });
   if (error) throw new Error(`Could not load the board: ${error.message}`);
 
@@ -108,50 +159,151 @@ export async function boardRows(
 
 export async function boardMetrics(
   merchantId: string,
-  days = 90,
+  since: string,
+  until: string | null = null,
 ): Promise<BoardMetrics> {
   const { data, error } = await db().rpc("merchant_board_metrics", {
     p_merchant_id: merchantId,
-    p_since: sinceIso(days),
+    p_since: since,
+    p_until: until,
   });
   if (error) throw new Error(`Could not load the metrics: ${error.message}`);
 
   const raw = (data ?? {}) as Record<string, unknown>;
   const causes = (raw.top_causes ?? []) as Array<Record<string, unknown>>;
+  const n = (k: string) => Number(raw[k] ?? 0);
 
   return {
-    total_events: Number(raw.total_events ?? 0),
-    recovered_count: Number(raw.recovered_count ?? 0),
-    amount_total: Number(raw.amount_total ?? 0),
-    amount_recovered: Number(raw.amount_recovered ?? 0),
-    recovery_rate: Number(raw.recovery_rate ?? 0),
+    total_events: n("total_events"),
+    recovered_count: n("recovered_count"),
+    amount_total: n("amount_total"),
+    amount_recovered: n("amount_recovered"),
+    amount_at_risk: n("amount_at_risk"),
+    recovery_rate: n("recovery_rate"),
     avg_recovery_seconds:
       raw.avg_recovery_seconds === null || raw.avg_recovery_seconds === undefined
         ? null
         : Number(raw.avg_recovery_seconds),
-    sent_total: Number(raw.sent_total ?? 0),
-    sent_in_window: Number(raw.sent_in_window ?? 0),
-    needs_human: Number(raw.needs_human ?? 0),
+    sent_total: n("sent_total"),
+    sent_in_window: n("sent_in_window"),
+    needs_human: n("needs_human"),
+    escalated_voice: n("escalated_voice"),
+    stopped: n("stopped"),
+    promise_active: n("promise_active"),
     top_causes: causes.map((c) => {
       const reason = String(c.reason ?? "unknown") as RootCause;
-      return {
-        reason,
-        label: profileFor(reason).label,
-        count: Number(c.count ?? 0),
-      };
+      return { reason, label: profileFor(reason).label, count: Number(c.count ?? 0) };
     }),
   };
 }
 
-export async function loadBoard(merchantId: string, days = 90): Promise<Board> {
-  const [rows, metrics] = await Promise.all([
-    boardRows(merchantId, days),
-    boardMetrics(merchantId, days),
-  ]);
-  return { rows, metrics };
+export async function boardSeries(
+  merchantId: string,
+  since: string,
+  until: string | null = null,
+): Promise<DayPoint[]> {
+  const { data, error } = await db().rpc("merchant_board_series", {
+    p_merchant_id: merchantId,
+    p_since: since,
+    p_until: until,
+  });
+  if (error) throw new Error(`Could not load the timeline: ${error.message}`);
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    day: String(r.day),
+    events: Number(r.events ?? 0),
+    recovered: Number(r.recovered ?? 0),
+    amount_recovered: Number(r.amount_recovered ?? 0),
+    amount_at_risk: Number(r.amount_at_risk ?? 0),
+    sent: Number(r.sent ?? 0),
+    sent_in_window: Number(r.sent_in_window ?? 0),
+  }));
 }
 
-/** One entry in an event's timeline. */
+export async function channelRecovery(
+  merchantId: string,
+  since: string,
+  until: string | null = null,
+): Promise<ChannelRecovery[]> {
+  const { data, error } = await db().rpc("merchant_channel_recovery", {
+    p_merchant_id: merchantId,
+    p_since: since,
+    p_until: until,
+  });
+  if (error) throw new Error(`Could not load channel recovery: ${error.message}`);
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+    const reached = Number(r.reached ?? 0);
+    const recovered = Number(r.recovered ?? 0);
+    return {
+      channel: String(r.channel) as Channel,
+      sent: Number(r.sent ?? 0),
+      reached,
+      recovered,
+      // Of the events reached on this channel, how many came good. Zero
+      // reached is a rate of zero, not a division by zero.
+      rate: reached === 0 ? 0 : Math.round((recovered / reached) * 100),
+    };
+  });
+}
+
+export async function todayStats(merchantId: string): Promise<TodayStats> {
+  const { data, error } = await db().rpc("merchant_today", {
+    p_merchant_id: merchantId,
+  });
+  if (error) throw new Error(`Could not load today: ${error.message}`);
+
+  const raw = (data ?? {}) as Record<string, unknown>;
+  const events = Number(raw.events_today ?? 0);
+  const recovered = Number(raw.recovered_today ?? 0);
+  return {
+    interventions_today: Number(raw.interventions_today ?? 0),
+    events_today: events,
+    recovered_today: recovered,
+    // Null rather than 0% when nothing arrived today: no events is not a
+    // failure to recover them.
+    recovery_rate_today: events === 0 ? null : Math.round((recovered / events) * 100),
+  };
+}
+
+/**
+ * The whole page, for one window.
+ *
+ * The previous window is the same length ending where this one begins, so
+ * "vs previous period" compares like with like whatever the picker says.
+ */
+export async function loadDashboard(
+  merchantId: string,
+  days: RangeDays = 7,
+): Promise<Dashboard> {
+  const now = Date.now();
+  const from = new Date(now - days * 86_400_000).toISOString();
+  const prevFrom = new Date(now - 2 * days * 86_400_000).toISOString();
+
+  const [rows, metrics, previous, series, channels, today] = await Promise.all([
+    boardRows(merchantId, from),
+    boardMetrics(merchantId, from),
+    boardMetrics(merchantId, prevFrom, from),
+    boardSeries(merchantId, from),
+    channelRecovery(merchantId, from),
+    todayStats(merchantId),
+  ]);
+
+  return {
+    days,
+    from,
+    to: new Date(now).toISOString(),
+    rows,
+    metrics,
+    previous,
+    series,
+    channels,
+    today,
+  };
+}
+
+/* ── the timeline behind one row ─────────────────────────────────────────── */
+
 export interface TimelineEntry {
   id: string;
   created_at: string;
@@ -186,9 +338,12 @@ export async function eventTimeline(
     intervention: (r.intervention as string) ?? null,
     rationale: (r.rationale as string) ?? null,
     guardrail: (r.guardrail as string) ?? null,
-    in_window: r.in_window === null || r.in_window === undefined ? null : Boolean(r.in_window),
+    in_window:
+      r.in_window === null || r.in_window === undefined ? null : Boolean(r.in_window),
   }));
 }
+
+/* ── helpers ─────────────────────────────────────────────────────────────── */
 
 /** "4m 7s", "2h 15m", "3d" - short enough for a metric card. */
 export function formatDuration(seconds: number | null): string {
@@ -210,6 +365,14 @@ export function formatDuration(seconds: number | null): string {
   return h ? `${d}d ${h}h` : `${d}d`;
 }
 
-function sinceIso(days: number): string {
-  return new Date(Date.now() - days * 86_400_000).toISOString();
+/**
+ * Percentage change against the previous window.
+ *
+ * Null when the previous window had nothing to compare against: growth from
+ * zero is not a percentage, and "+100%" for a first recovery would be a lie
+ * dressed as a metric.
+ */
+export function delta(now: number, before: number): number | null {
+  if (before === 0) return null;
+  return Math.round(((now - before) / before) * 1000) / 10;
 }

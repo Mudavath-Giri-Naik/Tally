@@ -694,9 +694,13 @@ $fn$;
 -- returns-table function is a change of return type, which create or replace
 -- refuses. The body is quoted, so nothing depends on it at creation time.
 drop function if exists merchant_board(uuid, timestamptz);
+drop function if exists merchant_board(uuid, timestamptz, timestamptz);
 create or replace function merchant_board(
   p_merchant_id uuid,
-  p_since       timestamptz default now() - interval '90 days'
+  p_since       timestamptz default now() - interval '90 days',
+  -- Null means "up to now". A bound taken from the application's clock would
+  -- drop a row the database stamped a fraction of a second later.
+  p_until       timestamptz default null
 ) returns table (
   event_id       uuid,
   customer_id    uuid,
@@ -761,24 +765,28 @@ as $fn$
   left join reached rc on rc.event_id = e.id
   where e.merchant_id = p_merchant_id
     and e.created_at >= p_since
+    and (p_until is null or e.created_at < p_until)
   order by e.created_at desc;
 $fn$;
 
--- The four metric cards and the line of causes beneath them, in one round trip.
+-- Every figure on the dashboard for one window, in one round trip. The card
+-- deltas need the window before this one too, so the whole thing is computed
+-- twice against different bounds rather than by two round trips.
+drop function if exists merchant_board_metrics(uuid, timestamptz);
 create or replace function merchant_board_metrics(
   p_merchant_id uuid,
-  p_since       timestamptz default now() - interval '90 days'
+  p_since       timestamptz default now() - interval '7 days',
+  p_until       timestamptz default null
 ) returns jsonb
 language sql stable
 as $fn$
   with board as (
-    select * from merchant_board(p_merchant_id, p_since)
+    select * from merchant_board(p_merchant_id, p_since, p_until)
   ),
-  -- Compliance is about messages actually sent, so no-op decisions and
-  -- withheld actions are not counted for or against it.
+  -- Compliance and "interventions sent" are both about messages that actually
+  -- went out, so a withheld decision counts towards neither.
   sent as (
-    select a.sent_at,
-           (a.sent_at at time zone m.timezone)::time as local_time,
+    select (a.sent_at at time zone m.timezone)::time as local_time,
            m.contact_window_start,
            m.contact_window_end
     from actions a
@@ -788,6 +796,7 @@ as $fn$
       and a.channel is not null
       and a.outcome in ('sent', 'delivered')
       and a.created_at >= p_since
+      and (p_until is null or a.created_at < p_until)
   ),
   causes as (
     select reason, count(*) as n
@@ -802,24 +811,167 @@ as $fn$
     'recovered_count',   (select count(*) from board where status = 'recovered'),
     'amount_total',      (select coalesce(sum(amount), 0) from board),
     'amount_recovered',  (select coalesce(sum(amount), 0) from board where status = 'recovered'),
+    -- Money still chaseable: open work only, not what was written off.
+    'amount_at_risk',
+      (select coalesce(sum(amount), 0) from board
+        where status in ('chasing', 'escalated_voice', 'needs_human')),
     'recovery_rate',
       (select case when count(*) = 0 then 0
               else round(100.0 * count(*) filter (where status = 'recovered') / count(*))
               end from board),
-    -- Seconds, averaged over recovered events only. Null when none have been
-    -- recovered yet, which the UI shows as "-" rather than as zero.
     'avg_recovery_seconds',
       (select round(avg(extract(epoch from (recovered_at - failed_on))))
          from board where status = 'recovered' and recovered_at is not null),
     'sent_total',        (select count(*) from sent),
     'sent_in_window',
       (select count(*) from sent
-        where local_time >= contact_window_start
-          and local_time <= contact_window_end),
+        where local_time >= contact_window_start and local_time <= contact_window_end),
     'needs_human',       (select count(*) from board where status = 'needs_human'),
+    'escalated_voice',   (select count(*) from board where status = 'escalated_voice'),
+    'stopped',           (select count(*) from board where status in ('stopped','opted_out')),
+    'promise_active',
+      (select count(*) from events
+        where merchant_id = p_merchant_id
+          and type = 'promise_to_pay'
+          and status in ('queued', 'processing')),
     'top_causes',
       (select coalesce(jsonb_agg(jsonb_build_object('reason', reason, 'count', n)), '[]'::jsonb)
          from causes)
+  );
+$fn$;
+
+-- One row per day in the window, including the days nothing happened - a
+-- sparkline with the quiet days missing is a sparkline of the wrong shape.
+create or replace function merchant_board_series(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '7 days',
+  p_until       timestamptz default null
+) returns table (
+  day               date,
+  events            bigint,
+  recovered         bigint,
+  amount_recovered  bigint,
+  amount_at_risk    bigint,
+  sent              bigint,
+  sent_in_window    bigint
+)
+language sql stable
+as $fn$
+  with bounds as (
+    select p_since::date as from_day,
+           (coalesce(p_until, now()) - interval '1 microsecond')::date as to_day
+  ),
+  days as (
+    select generate_series(
+      (select from_day from bounds), (select to_day from bounds), interval '1 day'
+    )::date as day
+  ),
+  ev as (
+    select e.created_at::date as day,
+           count(*) as events,
+           count(*) filter (where e.status = 'recovered') as recovered,
+           coalesce(sum(coalesce(e.recovered_amount, e.amount))
+                    filter (where e.status = 'recovered'), 0) as amount_recovered,
+           coalesce(sum(e.amount)
+                    filter (where e.status <> 'recovered'), 0) as amount_at_risk
+    from events e
+    where e.merchant_id = p_merchant_id
+      and e.created_at >= p_since
+      and (p_until is null or e.created_at < p_until)
+    group by 1
+  ),
+  ac as (
+    select a.created_at::date as day,
+           count(*) as sent,
+           count(*) filter (
+             where (a.sent_at at time zone m.timezone)::time
+                     between m.contact_window_start and m.contact_window_end
+           ) as sent_in_window
+    from actions a
+    join merchants m on m.id = a.merchant_id
+    where a.merchant_id = p_merchant_id
+      and a.sent_at is not null
+      and a.channel is not null
+      and a.outcome in ('sent', 'delivered')
+      and a.created_at >= p_since
+      and (p_until is null or a.created_at < p_until)
+    group by 1
+  )
+  select d.day,
+         coalesce(ev.events, 0),
+         coalesce(ev.recovered, 0),
+         coalesce(ev.amount_recovered, 0),
+         coalesce(ev.amount_at_risk, 0),
+         coalesce(ac.sent, 0),
+         coalesce(ac.sent_in_window, 0)
+  from days d
+  left join ev on ev.day = d.day
+  left join ac on ac.day = d.day
+  order by d.day;
+$fn$;
+
+-- Which channel is actually recovering money, not merely being used. The
+-- denominator is events contacted on that channel, so a channel used twice on
+-- one event does not flatter its own rate.
+create or replace function merchant_channel_recovery(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '7 days',
+  p_until       timestamptz default null
+) returns table (
+  channel    text,
+  sent       bigint,
+  reached    bigint,
+  recovered  bigint
+)
+language sql stable
+as $fn$
+  with touched as (
+    select a.channel, a.event_id, e.status
+    from actions a
+    join events e on e.id = a.event_id
+    where a.merchant_id = p_merchant_id
+      and a.channel is not null
+      and a.outcome in ('sent', 'delivered')
+      and a.created_at >= p_since
+      and (p_until is null or a.created_at < p_until)
+  )
+  select c.channel,
+         (select count(*) from touched t where t.channel = c.channel)                as sent,
+         (select count(distinct t.event_id) from touched t where t.channel = c.channel) as reached,
+         (select count(distinct t.event_id) from touched t
+           where t.channel = c.channel and t.status = 'recovered')                   as recovered
+  from (values ('email'), ('whatsapp'), ('voice')) as c(channel);
+$fn$;
+
+-- What the agent has done today, for the sidebar. Deliberately its own
+-- function: the widget is about right now, not about the selected window.
+create or replace function merchant_today(
+  p_merchant_id uuid
+) returns jsonb
+language sql stable
+as $fn$
+  with m as (select timezone from merchants where id = p_merchant_id),
+  bounds as (
+    select (date_trunc('day', now() at time zone (select timezone from m))
+            at time zone (select timezone from m)) as day_start
+  )
+  select jsonb_build_object(
+    'interventions_today',
+      (select count(*) from actions
+        where merchant_id = p_merchant_id
+          and sent_at is not null
+          and channel is not null
+          and outcome in ('sent','delivered')
+          and created_at >= (select day_start from bounds)),
+    'events_today',
+      (select count(*) from events
+        where merchant_id = p_merchant_id
+          and created_at >= (select day_start from bounds)),
+    'recovered_today',
+      (select count(*) from events
+        where merchant_id = p_merchant_id
+          and status = 'recovered'
+          and updated_at >= (select day_start from bounds))
   );
 $fn$;
 

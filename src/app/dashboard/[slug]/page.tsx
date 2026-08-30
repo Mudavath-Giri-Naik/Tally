@@ -1,43 +1,36 @@
 /**
- * The dashboard. One page, one dataset, several ways of looking at it.
+ * The Overview. One page, one dataset, several ways of looking at it.
  *
- * Rendered on the server with real numbers so the page is correct before any
- * JavaScript runs, then handed to a client component that keeps it current
- * from the SSE stream.
- *
- * This replaced three separate pages. Filtering by status tab is what an
- * Events list did; the table is what a Customers list did; the timeline behind
- * a row is what an activity feed did. They were one dataset all along, and
- * making a merchant navigate between them to assemble the picture was the
- * cost of pretending otherwise.
+ * Rendered on the server for the selected window so the figures are correct
+ * before any JavaScript runs, then handed to a client component that keeps
+ * them current from the SSE stream.
  */
 import { notFound } from "next/navigation";
 import { resolveMerchant } from "@/lib/merchants";
-import { loadBoard } from "@/lib/board";
-import { PageHead } from "@/components/ui";
-import { LiveBoard } from "@/components/live-board";
+import { loadDashboard, rangeDays } from "@/lib/board";
+import { Overview } from "@/components/overview";
 
 export const dynamic = "force-dynamic";
 
-export default async function BoardPage({
+export default async function OverviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { slug } = await params;
+  const sp = await searchParams;
   const merchant = await resolveMerchant(slug).catch(() => null);
   if (!merchant) notFound();
 
-  const board = await loadBoard(merchant.id);
+  const raw = Array.isArray(sp.range) ? sp.range[0] : sp.range;
+  const days = rangeDays(raw);
 
   return (
-    <>
-      <PageHead
-        title="Dashboard"
-        lede={`Last 90 days · ${merchant.business_name}`}
-      />
-
-      <LiveBoard slug={merchant.slug} initial={board} />
-    </>
+    <Overview
+      slug={merchant.slug}
+      initial={await loadDashboard(merchant.id, days)}
+    />
   );
 }

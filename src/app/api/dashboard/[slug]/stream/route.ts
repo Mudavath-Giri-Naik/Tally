@@ -20,7 +20,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireEnv } from "@/lib/env";
 import { resolveMerchant } from "@/lib/merchants";
-import { loadBoard } from "@/lib/board";
+import { loadDashboard, rangeDays } from "@/lib/board";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ const HEARTBEAT_MS = 15_000;
 const DEBOUNCE_MS = 400;
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ slug: string }> },
 ): Promise<Response> {
   const { slug } = await params;
@@ -44,6 +44,12 @@ export async function GET(
   if (!merchant) {
     return NextResponse.json({ error: "No such business." }, { status: 404 });
   }
+
+  // The stream has to push the same window the page is showing, or a live
+  // update would silently swap the viewer onto a different date range.
+  const days = rangeDays(
+    new URL(request.url).searchParams.get("days") ?? undefined,
+  );
 
   const supabase = createClient(
     requireEnv("SUPABASE_URL", "the dashboard live feed"),
@@ -71,7 +77,7 @@ export async function GET(
       let timer: ReturnType<typeof setTimeout> | null = null;
       const push = async () => {
         try {
-          send("board", await loadBoard(merchant.id));
+          send("board", await loadDashboard(merchant.id, days));
         } catch (err) {
           console.error("[stream] could not build the board", err);
         }
