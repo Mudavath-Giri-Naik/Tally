@@ -168,7 +168,14 @@ export class GeminiProvider implements DecisionProvider {
   async reply(system: string, user: string): Promise<AgentReply> {
     // Warmer than a decision: this is read by a person mid-conversation, and
     // a reply that sounds like a form letter reads as a bot stalling them.
-    const parsed = await this.generate(system, user, REPLY_SCHEMA, 0.7, 1024);
+    //
+    // The token budget is not about the length of the reply - a WhatsApp
+    // message is fifty words. Flash reasons before it emits, and that
+    // reasoning is charged to the same budget, so a tight cap does not
+    // truncate the message, it stops the JSON ever being closed and the whole
+    // call fails with MAX_TOKENS. It grows with the transcript, which is how
+    // a conversation that worked at three turns stops working at fifteen.
+    const parsed = await this.generate(system, user, REPLY_SCHEMA, 0.7, 4096);
     const result = ReplySchema.safeParse(parsed);
     if (!result.success) {
       throw new Error(
@@ -181,7 +188,7 @@ export class GeminiProvider implements DecisionProvider {
   }
 
   async summarise(system: string, user: string): Promise<AgentSummary> {
-    const parsed = await this.generate(system, user, SUMMARY_SCHEMA, 0.2, 512);
+    const parsed = await this.generate(system, user, SUMMARY_SCHEMA, 0.2, 4096);
     const result = SummarySchema.safeParse(parsed);
     if (!result.success) {
       throw new Error(
@@ -290,10 +297,14 @@ export class GeminiProvider implements DecisionProvider {
     if (!candidate) throw new TransientProviderError("Gemini returned no candidates");
 
     if (candidate.finishReason && candidate.finishReason !== "STOP") {
-      // MAX_TOKENS here means the JSON is truncated and unparseable.
-      throw new Error(
-        `Gemini stopped early (${candidate.finishReason}) - decision incomplete`,
-      );
+      // MAX_TOKENS here means the JSON is truncated and unparseable. Worth one
+      // more attempt: the reasoning length varies between runs, so the same
+      // request can fit on a retry - and the alternative is no answer at all.
+      const message = `Gemini stopped early (${candidate.finishReason}) - output incomplete`;
+      if (candidate.finishReason === "MAX_TOKENS") {
+        throw new TransientProviderError(message);
+      }
+      throw new Error(message);
     }
 
     const text = candidate.content?.parts?.map((p) => p.text ?? "").join("") ?? "";

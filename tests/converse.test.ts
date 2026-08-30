@@ -15,6 +15,8 @@ import {
   INBOUND_PREFIX,
   REPLY_PREFIX,
   SUMMARY_PREFIX,
+  FALLBACK_MESSAGE,
+  MAX_TURNS_IN_CONTEXT,
   type ConversationContext,
 } from "../src/lib/agent/converse";
 import { makeMerchant, makeEvent, makeCustomer } from "./helpers/context";
@@ -156,5 +158,22 @@ describe("the transcript prefixes", () => {
         if (a !== b) assert.ok(!a.startsWith(b), `${a} starts with ${b}`);
       }
     }
+  });
+});
+
+describe("when the model cannot be reached", () => {
+  test("the holding line is short, honest, and promises no outcome", () => {
+    // It goes to a real customer, so it must not imply the question was
+    // answered or commit the business to a timeframe it has not agreed.
+    assert.ok(FALLBACK_MESSAGE.length < 120);
+    assert.doesNotMatch(FALLBACK_MESSAGE, /\bAI\b|assistant|bot|error|sorry/i);
+    assert.doesNotMatch(FALLBACK_MESSAGE, /\b(24 hours|tomorrow|today|within)\b/i);
+  });
+
+  test("the context window is bounded, or a long chat stops working", () => {
+    // The failure this guards against is a conversation that replies fine at
+    // three turns and silently stops at fifteen, because the prompt and the
+    // reasoning both grow against a fixed output budget.
+    assert.ok(MAX_TURNS_IN_CONTEXT > 0 && MAX_TURNS_IN_CONTEXT <= 20);
   });
 });

@@ -179,9 +179,19 @@ export function buildSummaryPrompt(ctx: ConversationContext): string {
  * because the audit trail has to contain the conversation anyway. Reading it
  * back is cheaper than keeping a second copy in sync with it.
  */
+/**
+ * How many past turns the model is shown.
+ *
+ * Bounded on purpose. The prompt grows with the conversation, the reasoning
+ * grows with the prompt, and both are charged to a fixed output budget - an
+ * unbounded transcript is a reply that works early in a chat and fails later
+ * in the same chat.
+ */
+export const MAX_TURNS_IN_CONTEXT = 12;
+
 export async function conversationTurns(
   customerId: string,
-  limit = 20,
+  limit = MAX_TURNS_IN_CONTEXT,
 ): Promise<Turn[]> {
   const { data, error } = await db()
     .from("actions")
@@ -225,8 +235,20 @@ export async function repliesSentToday(customerId: string): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * What goes out when the model cannot be reached at all.
+ *
+ * Silence is the worse failure. A customer who asks a question and gets
+ * nothing back assumes the business is ignoring them; a short honest holding
+ * line costs the merchant nothing and keeps the thread alive until a person
+ * or the next message picks it up.
+ */
+export const FALLBACK_MESSAGE =
+  "Thanks for writing in - let me check this and come back to you shortly.";
+
 export type ReplyOutcome =
   | { kind: "reply"; reply: AgentReply }
+  | { kind: "fallback"; message: string; error: string }
   | { kind: "skipped"; why: "opted_out" | "rate_limited" | "no_model" };
 
 /**
@@ -250,15 +272,29 @@ export async function draftReply(
   }
 
   const provider = await getProvider();
-  // No key configured. Silence is the right failure here - a templated
-  // "sorry, I did not understand" is worse than the merchant answering later.
+  // No key configured at all. Nothing to fall back from, and a merchant who
+  // never set a key has not asked for auto-replies.
   if (!provider) return { kind: "skipped", why: "no_model" };
 
-  const reply = await provider.reply(
-    CONVERSE_SYSTEM_PROMPT,
-    buildConversePrompt(ctx),
-  );
-  return { kind: "reply", reply };
+  try {
+    const reply = await provider.reply(
+      CONVERSE_SYSTEM_PROMPT,
+      buildConversePrompt(ctx),
+    );
+    return { kind: "reply", reply };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+
+    // Do not answer a stall with the same stall. If the last thing said was
+    // already the holding line, the model is still down and repeating it
+    // makes the business look broken rather than busy.
+    const lastFromUs = [...ctx.turns].reverse().find((t) => t.who === "business");
+    if (lastFromUs?.text.trim() === FALLBACK_MESSAGE) {
+      return { kind: "skipped", why: "no_model" };
+    }
+
+    return { kind: "fallback", message: FALLBACK_MESSAGE, error };
+  }
 }
 
 export async function summariseConversation(

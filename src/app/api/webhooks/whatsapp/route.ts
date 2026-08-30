@@ -38,6 +38,7 @@ import {
   REPLY_PREFIX,
   type ConversationContext,
 } from "@/lib/agent/converse";
+import type { AgentReply } from "@/lib/agent/providers";
 import { db } from "@/lib/supabase";
 import type { Customer, Merchant, RecoveryEvent } from "@/lib/types";
 
@@ -360,6 +361,21 @@ async function replyToCustomer(customer: Customer): Promise<void> {
     return;
   }
 
+  // A fallback is still a reply as far as the customer is concerned, so it
+  // goes out the same way - but it is always flagged for a person, because
+  // nobody has actually answered the question yet.
+  const reply: AgentReply =
+    outcome.kind === "fallback"
+      ? { message: outcome.message, needs_human: true, topic: "awaiting a reply" }
+      : outcome.reply;
+
+  if (outcome.kind === "fallback") {
+    console.error("[whatsapp-in] model unavailable, sent holding reply", {
+      customer: customer.id,
+      error: outcome.error,
+    });
+  }
+
   const result = await sendWhatsApp({
     merchantName: merchant.business_name,
     recipient: {
@@ -368,7 +384,7 @@ async function replyToCustomer(customer: Customer): Promise<void> {
       phone: customer.phone,
     },
     subject: null,
-    body: outcome.reply.message,
+    body: reply.message,
     // The agent puts a link in the text itself when the conversation calls for
     // one; appending a second copy would read as a bot repeating itself.
     link: null,
@@ -383,19 +399,26 @@ async function replyToCustomer(customer: Customer): Promise<void> {
     eventId: anchor.id,
     merchantId: customer.merchant_id,
     channel: "whatsapp",
-    message: `${REPLY_PREFIX}${outcome.reply.message}`,
+    message: `${REPLY_PREFIX}${reply.message}`,
     outcome: result.ok ? "sent" : "failed",
     response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
     sentAt: new Date().toISOString(),
     decision: {
       root_cause: anchor.reason ?? "unknown",
-      intervention: outcome.reply.needs_human ? "escalate_human" : "send_message",
+      intervention: reply.needs_human ? "escalate_human" : "send_message",
       channel: "whatsapp",
-      rationale: `Answered the customer about ${outcome.reply.topic}.${
-        outcome.reply.needs_human ? " Flagged for a person to read." : ""
-      }`,
+      rationale:
+        outcome.kind === "fallback"
+          ? `Could not reach the model (${outcome.error.slice(0, 120)}). Sent a holding reply and flagged it.`
+          : `Answered the customer about ${reply.topic}.${
+              reply.needs_human ? " Flagged for a person to read." : ""
+            }`,
       source: "agent",
-      guardrail: outcome.reply.needs_human ? "reply_needs_human" : undefined,
+      guardrail: outcome.kind === "fallback"
+        ? "model_unavailable"
+        : reply.needs_human
+          ? "reply_needs_human"
+          : undefined,
     },
   });
 }
