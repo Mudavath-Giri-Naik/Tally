@@ -439,3 +439,116 @@ describe("pendingPrompt", () => {
     assert.equal(await pendingPrompt(asha), null);
   });
 });
+
+describe("the recovery board", () => {
+  async function seedVoiceAction(merchantId: string, eventId: string) {
+    await pool.query(
+      `insert into actions (event_id, merchant_id, channel, message, outcome, sent_at)
+       values ($1,$2,'voice','called them','sent', now())`,
+      [eventId, merchantId],
+    );
+  }
+
+  test("derives each of the six statuses", async () => {
+    const plain = await seedCustomer(mandate, { name: "Plain" });
+    const quiet = await seedCustomer(mandate, { name: "Quiet", optedOut: true });
+
+    await seedEvent(mandate, { customerId: plain, status: "recovered" });
+    await seedEvent(mandate, { customerId: quiet, status: "queued" });
+    await seedEvent(mandate, {
+      customerId: plain, status: "stopped", reason: "risk_declined",
+    });
+    await pool.query(
+      `update events set stop_reason = 'risk_flagged'
+        where merchant_id = $1 and status = 'stopped'`, [mandate],
+    );
+    const voiced = await seedEvent(mandate, { customerId: plain, status: "queued" });
+    await seedVoiceAction(mandate, voiced);
+    const capped = await seedEvent(mandate, { customerId: plain, status: "unrecoverable" });
+    await pool.query(
+      `update events set stop_reason = 'max_attempts_reached' where id = $1`, [capped],
+    );
+    await seedEvent(mandate, { customerId: plain, status: "queued" });
+
+    const { rows } = await pool.query<{ status: string }>(
+      `select status from merchant_board($1)`, [mandate],
+    );
+    const seen = rows.map((r) => r.status).sort();
+    assert.deepEqual(seen, [
+      "chasing", "escalated_voice", "needs_human", "opted_out", "recovered", "stopped",
+    ]);
+  });
+
+  test("an opted-out customer outranks whatever their event says", async () => {
+    // They asked not to be contacted; that is the fact a merchant needs to see
+    // first, whatever state the recovery happens to be in.
+    const quiet = await seedCustomer(mandate, { name: "Quiet", optedOut: true });
+    await seedEvent(mandate, { customerId: quiet, status: "queued" });
+    const { rows } = await pool.query<{ status: string }>(
+      `select status from merchant_board($1)`, [mandate],
+    );
+    assert.equal(rows[0].status, "opted_out");
+  });
+
+  test("but a recovered payment outranks even that", async () => {
+    const quiet = await seedCustomer(mandate, { name: "Quiet", optedOut: true });
+    await seedEvent(mandate, { customerId: quiet, status: "recovered" });
+    const { rows } = await pool.query<{ status: string }>(
+      `select status from merchant_board($1)`, [mandate],
+    );
+    assert.equal(rows[0].status, "recovered");
+  });
+
+  test("counts compliance only against messages actually sent", async () => {
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    // Mandate's window is the schema default, 08:00-19:00 Asia/Kolkata.
+    // 06:00 UTC is 11:30 IST - inside. 20:00 UTC is 01:30 IST - outside.
+    await pool.query(
+      `insert into actions (event_id, merchant_id, channel, outcome, sent_at, message)
+       values ($1,$2,'whatsapp','sent', date_trunc('day', now()) + interval '6 hours', 'in'),
+              ($1,$2,'whatsapp','sent', date_trunc('day', now()) + interval '20 hours', 'out'),
+              ($1,$2,null,'no_action', null, 'withheld')`,
+      [event, mandate],
+    );
+
+    const { rows } = await pool.query<{ m: Record<string, number> }>(
+      `select merchant_board_metrics($1) as m`, [mandate],
+    );
+    // The withheld action is neither compliant nor non-compliant, so it is
+    // counted in neither figure.
+    assert.equal(Number(rows[0].m.sent_total), 2);
+    assert.equal(Number(rows[0].m.sent_in_window), 1);
+  });
+
+  test("averages recovery time over recovered events only", async () => {
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const recovered = await seedEvent(mandate, { customerId: asha, status: "recovered" });
+    await pool.query(
+      `update events set created_at = now() - interval '10 minutes', updated_at = now()
+        where id = $1`, [recovered],
+    );
+    await seedEvent(mandate, { customerId: asha, status: "queued" });
+
+    const { rows } = await pool.query<{ m: Record<string, number> }>(
+      `select merchant_board_metrics($1) as m`, [mandate],
+    );
+    const secs = Number(rows[0].m.avg_recovery_seconds);
+    assert.ok(secs >= 590 && secs <= 610, `expected ~600s, got ${secs}`);
+  });
+
+  test("reports no average at all when nothing is recovered", async () => {
+    // Zero would read as "recovered instantly", which is the opposite of true.
+    await seedEvent(mandate, { status: "queued" });
+    const { rows } = await pool.query<{ m: Record<string, unknown> }>(
+      `select merchant_board_metrics($1) as m`, [mandate],
+    );
+    assert.equal(rows[0].m.avg_recovery_seconds, null);
+  });
+
+  test("never shows another merchant's rows", async () => {
+    await seedEvent(swaseekh, { status: "queued" });
+    const { rows } = await pool.query(`select * from merchant_board($1)`, [mandate]);
+    assert.equal(rows.length, 0);
+  });
+});

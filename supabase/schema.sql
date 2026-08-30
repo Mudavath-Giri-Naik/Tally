@@ -677,6 +677,203 @@ as $fn$
   limit p_limit;
 $fn$;
 
+-- ===========================================================================
+-- The recovery board
+--
+-- One row per event, already carrying the status a merchant reads it by. The
+-- six statuses are derived here rather than in the UI because they are a fact
+-- about the data, not a rendering choice - the same derivation has to hold for
+-- the table, the tab counts and the metric cards, and three copies of a case
+-- expression is three chances to disagree.
+--
+-- Order matters and is the product's, not SQL's: recovered, then opted out,
+-- then handed to a human, then escalated to voice, then stopped for any other
+-- reason, and anything still moving is chasing.
+-- ===========================================================================
+create or replace function merchant_board(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '90 days'
+) returns table (
+  event_id       uuid,
+  customer_id    uuid,
+  customer_name  text,
+  amount         bigint,
+  reason         text,
+  status         text,
+  attempts       int,
+  max_attempts   int,
+  failed_on      timestamptz,
+  recovered_at   timestamptz
+)
+language sql stable
+as $fn$
+  with latest_channel as (
+    -- The channel of the most recent action that actually sent something.
+    -- distinct on is the cheap way to take one row per event.
+    select distinct on (a.event_id) a.event_id, a.channel
+    from actions a
+    where a.merchant_id = p_merchant_id
+      and a.channel is not null
+    order by a.event_id, a.created_at desc
+  )
+  select e.id,
+         c.id,
+         c.name,
+         e.amount,
+         coalesce(e.reason, 'unknown'),
+         case
+           when e.status = 'recovered' then 'recovered'
+           when coalesce(c.opted_out, false) then 'opted_out'
+           when e.status in ('stopped', 'unrecoverable')
+            and e.stop_reason in ('risk_flagged', 'repeat_failure_across_cycles')
+             then 'needs_human'
+           when lc.channel = 'voice' then 'escalated_voice'
+           when e.status in ('stopped', 'unrecoverable') then 'stopped'
+           else 'chasing'
+         end as status,
+         e.attempts,
+         m.max_attempts,
+         e.created_at,
+         case when e.status = 'recovered' then e.updated_at end
+  from events e
+  join merchants m on m.id = e.merchant_id
+  left join customers c on c.id = e.customer_id
+  left join latest_channel lc on lc.event_id = e.id
+  where e.merchant_id = p_merchant_id
+    and e.created_at >= p_since
+  order by e.created_at desc;
+$fn$;
+
+-- The four metric cards and the line of causes beneath them, in one round trip.
+create or replace function merchant_board_metrics(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '90 days'
+) returns jsonb
+language sql stable
+as $fn$
+  with board as (
+    select * from merchant_board(p_merchant_id, p_since)
+  ),
+  -- Compliance is about messages actually sent, so no-op decisions and
+  -- withheld actions are not counted for or against it.
+  sent as (
+    select a.sent_at,
+           (a.sent_at at time zone m.timezone)::time as local_time,
+           m.contact_window_start,
+           m.contact_window_end
+    from actions a
+    join merchants m on m.id = a.merchant_id
+    where a.merchant_id = p_merchant_id
+      and a.sent_at is not null
+      and a.channel is not null
+      and a.outcome in ('sent', 'delivered')
+      and a.created_at >= p_since
+  ),
+  causes as (
+    select reason, count(*) as n
+    from board
+    where status <> 'recovered'
+    group by reason
+    order by n desc, reason
+    limit 3
+  )
+  select jsonb_build_object(
+    'total_events',      (select count(*) from board),
+    'recovered_count',   (select count(*) from board where status = 'recovered'),
+    'amount_total',      (select coalesce(sum(amount), 0) from board),
+    'amount_recovered',  (select coalesce(sum(amount), 0) from board where status = 'recovered'),
+    'recovery_rate',
+      (select case when count(*) = 0 then 0
+              else round(100.0 * count(*) filter (where status = 'recovered') / count(*))
+              end from board),
+    -- Seconds, averaged over recovered events only. Null when none have been
+    -- recovered yet, which the UI shows as "-" rather than as zero.
+    'avg_recovery_seconds',
+      (select round(avg(extract(epoch from (recovered_at - failed_on))))
+         from board where status = 'recovered' and recovered_at is not null),
+    'sent_total',        (select count(*) from sent),
+    'sent_in_window',
+      (select count(*) from sent
+        where local_time >= contact_window_start
+          and local_time <= contact_window_end),
+    'needs_human',       (select count(*) from board where status = 'needs_human'),
+    'top_causes',
+      (select coalesce(jsonb_agg(jsonb_build_object('reason', reason, 'count', n)), '[]'::jsonb)
+         from causes)
+  );
+$fn$;
+
+-- The timeline behind one row. Ordered oldest first, because a timeline read
+-- newest-first is a list, not a story.
+create or replace function event_timeline(
+  p_merchant_id uuid,
+  p_event_id    uuid
+) returns table (
+  id          uuid,
+  created_at  timestamptz,
+  sent_at     timestamptz,
+  channel     text,
+  outcome     text,
+  message     text,
+  intervention text,
+  rationale   text,
+  guardrail   text,
+  in_window   boolean
+)
+language sql stable
+as $fn$
+  select a.id,
+         a.created_at,
+         a.sent_at,
+         a.channel,
+         a.outcome,
+         a.message,
+         a.decision->>'intervention',
+         a.decision->>'rationale',
+         a.decision->>'guardrail',
+         -- Null for anything that was never sent: an action with no send time
+         -- is neither compliant nor non-compliant.
+         case when a.sent_at is null or a.channel is null then null
+              else (a.sent_at at time zone m.timezone)::time
+                     between m.contact_window_start and m.contact_window_end
+         end
+  from actions a
+  join merchants m on m.id = a.merchant_id
+  where a.merchant_id = p_merchant_id
+    and a.event_id = p_event_id
+  order by a.created_at;
+$fn$;
+
+-- ===========================================================================
+-- Realtime
+--
+-- The dashboard streams changes rather than polling. Only the two tables the
+-- board is built from are published - merchants and customers change rarely
+-- enough that a refresh on the next event is soon enough, and every row that
+-- crosses this publication is one more thing to filter by tenant.
+--
+-- Guarded because adding a table twice raises, and this file is applied
+-- repeatedly by design.
+-- ===========================================================================
+do $realtime$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'events'
+    ) then
+      alter publication supabase_realtime add table events;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'actions'
+    ) then
+      alter publication supabase_realtime add table actions;
+    end if;
+  end if;
+end
+$realtime$;
+
 -- --- Row Level Security ----------------------------------------------------
 -- Tally's server acts with the service-role key, which bypasses RLS. Enabling
 -- RLS with no policies means a leaked anon/publishable key reads nothing at
