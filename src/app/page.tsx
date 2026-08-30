@@ -94,6 +94,17 @@ export default function HomePage() {
                 </Link>
               </nav>
 
+              <a
+                href="https://github.com/Mudavath-Giri-Naik/Tally"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="View the source on GitHub"
+                className="flex shrink-0 items-center justify-center rounded-full p-1.5 transition hover:bg-neutral-100"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/icons/github.png" alt="" className="size-5" />
+              </a>
+
               <Link
                 href="/onboarding"
                 className="flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-2 pl-3.5 pr-1 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
