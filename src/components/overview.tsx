@@ -57,7 +57,7 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -804,6 +804,7 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
                     <TableCell>
                       <div className="flex items-center gap-2.5">
                         <Avatar className="size-7">
+                          <AvatarImage src="/icons/user.png" alt={row.customer_name ?? "Unknown"} />
                           <AvatarFallback className="text-[0.65rem] font-bold">
                             {initials(row.customer_name)}
                           </AvatarFallback>
