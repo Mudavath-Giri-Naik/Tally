@@ -116,9 +116,8 @@ export default function HomePage() {
               Recovery
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-base text-neutral-600 sm:text-lg">
-              Tally watches your Razorpay account, works out <em>why</em> each
-              payment actually failed, and recovers it — by email, WhatsApp, or
-              a real phone call. Connect it once, then just watch the number.
+              AI that finds out why a payment failed — and gets it back for
+              you, automatically.
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">

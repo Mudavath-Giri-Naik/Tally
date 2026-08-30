@@ -3,11 +3,13 @@
 /**
  * The hills-and-dashboard scroll reveal.
  *
- * At rest the hills sit high enough to genuinely cover the dashboard - this
- * is meant to hide it, not just tint it - and scrolling drives two things at
- * once: the dashboard rises into full focus while the hills travel down past
- * their own height and off the bottom of the section entirely, so they are
- * gone rather than merely "lower". Plain scroll math, no library: one
+ * The dashboard stays fully opaque throughout - whatever of it isn't covered
+ * by the hills should look crisp, not faded, so covering it is entirely the
+ * hills' job, done by position, never by dimming the thing underneath. At
+ * rest the hills sit high enough to genuinely hide the dashboard; scrolling
+ * drives two things at once: the dashboard rises into place while the hills
+ * travel down past their own height and off the section entirely, so they
+ * are gone rather than merely "lower". Plain scroll math, no library: one
  * listener, one 0-1 number, two transforms.
  */
 import { useEffect, useRef, useState } from "react";
@@ -49,12 +51,11 @@ export function HeroReveal() {
             alt="Tally's live recovery dashboard"
             className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl ring-1 ring-black/10 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl"
             style={{
-              // Genuinely hidden at rest - low opacity, pulled down and
-              // shrunk - because the hills are meant to cover it, not sit
-              // beside a dashboard that is already half-visible underneath.
+              // Always fully opaque - being hidden is the hills' job, done by
+              // sitting on top of it, not by fading the image itself. Only
+              // position and scale animate, so anything peeking out from
+              // behind the hills at any point in the scroll reads crisp.
               transform: `translateY(${(1 - progress) * 56}px) scale(${0.92 + progress * 0.08})`,
-              opacity: 0.2 + progress * 0.8,
-              transition: "opacity 60ms linear",
             }}
           />
         </div>
@@ -67,12 +68,12 @@ export function HeroReveal() {
           style={{
             left: "50%",
             // translateY is a percentage of the image's OWN rendered height,
-            // not the container's. -38% at rest lifts it well above its
-            // natural bottom-anchored position so it actually overlaps the
+            // not the container's. -60% at rest lifts it well above its
+            // natural bottom-anchored position so it covers most of the
             // dashboard; +115% at full scroll pushes it a full height plus a
             // margin past where it started, clearing the section completely
             // rather than merely sliding to a lower resting spot.
-            transform: `translateX(-50%) translateY(${-38 + progress * 153}%)`,
+            transform: `translateX(-50%) translateY(${-60 + progress * 175}%)`,
           }}
         />
       </div>
