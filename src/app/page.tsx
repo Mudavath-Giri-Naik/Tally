@@ -67,7 +67,7 @@ export default function HomePage() {
             stretching each axis independently, so nothing distorts - it
             crops rather than warps. Full opacity throughout, no fade mask. */}
         <div
-          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-cover bg-top bg-no-repeat"
+          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-top bg-no-repeat"
           aria-hidden="true"
         />
 
