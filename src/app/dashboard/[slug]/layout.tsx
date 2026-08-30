@@ -45,11 +45,12 @@ export default async function DashboardLayout({
 
   const stats = await merchantStats(merchant.id).catch(() => null);
 
+  // One dataset, viewed several ways, is one page. Filtering by status is what
+  // a separate Events list was; the table is what a Customers list was; and the
+  // timeline behind a row is what an activity feed was. Splitting them made a
+  // merchant hunt across three pages for one thing.
   const items: NavItem[] = [
-    { href: base, label: "Overview", icon: "◧" },
-    { href: `${base}/events`, label: "Events", icon: "◈", badge: stats?.open },
-    { href: `${base}/customers`, label: "Customers", icon: "◍" },
-    { href: `${base}/activity`, label: "Agent activity", icon: "◎" },
+    { href: base, label: "Dashboard", icon: "◧", badge: stats?.open },
     { href: `${base}/settings`, label: "Settings", icon: "⚙" },
   ];
 

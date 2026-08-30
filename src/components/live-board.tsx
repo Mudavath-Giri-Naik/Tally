@@ -66,6 +66,7 @@ export function LiveBoard({
 }) {
   const [board, setBoard] = useState<Board>(initial);
   const [tab, setTab] = useState<BoardStatus | "all">("all");
+  const [query, setQuery] = useState("");
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
@@ -90,16 +91,33 @@ export function LiveBoard({
     return () => source.close();
   }, [slug]);
 
+  // Search first, then the tab. Doing it in this order is what makes the tab
+  // counts describe the search results rather than the whole table - a count
+  // that ignores the active search sends the merchant to an empty tab.
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return board.rows;
+    return board.rows.filter((r) => {
+      const amount = r.amount === null ? "" : String(Math.round(r.amount / 100));
+      return (
+        (r.customer_name ?? "").toLowerCase().includes(q) ||
+        r.reason_label.toLowerCase().includes(q) ||
+        r.reason.toLowerCase().includes(q) ||
+        amount.includes(q)
+      );
+    });
+  }, [board.rows, query]);
+
   const counts = useMemo(() => {
-    const out: Record<string, number> = { all: board.rows.length };
+    const out: Record<string, number> = { all: searched.length };
     for (const s of BOARD_STATUSES) out[s] = 0;
-    for (const r of board.rows) out[r.status] = (out[r.status] ?? 0) + 1;
+    for (const r of searched) out[r.status] = (out[r.status] ?? 0) + 1;
     return out;
-  }, [board.rows]);
+  }, [searched]);
 
   const visible = useMemo(
-    () => (tab === "all" ? board.rows : board.rows.filter((r) => r.status === tab)),
-    [board.rows, tab],
+    () => (tab === "all" ? searched : searched.filter((r) => r.status === tab)),
+    [searched, tab],
   );
 
   // ── the detail panel ───────────────────────────────────────────────────
@@ -205,7 +223,30 @@ export function LiveBoard({
         </span>
       </p>
 
-      {/* ── layer 2: tabs + table ── */}
+      {/* ── layer 2: search, tabs, table ── */}
+      <div className="boardbar">
+        <input
+          type="text"
+          className="boardbar__search"
+          value={query}
+          placeholder="Search customer, cause or amount"
+          aria-label="Search the board"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query && (
+          <button
+            type="button"
+            className="boardbar__clear"
+            onClick={() => setQuery("")}
+          >
+            Clear
+          </button>
+        )}
+        <span className="boardbar__count">
+          {visible.length} of {board.rows.length}
+        </span>
+      </div>
+
       <div className="tabs" role="tablist" aria-label="Filter by status">
         <button
           type="button"
@@ -239,7 +280,9 @@ export function LiveBoard({
         <div className="board-empty">
           {board.rows.length === 0
             ? "No events yet. The first failed payment on your Razorpay account appears here within a minute."
-            : "Nothing in this state right now."}
+            : query
+              ? `Nothing matches "${query}".`
+              : "Nothing in this state right now."}
         </div>
       ) : (
         <div className="table-wrap">

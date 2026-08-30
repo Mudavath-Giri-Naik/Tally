@@ -1,12 +1,16 @@
 /**
- * The recovery board — the dashboard's default view.
+ * The dashboard. One page, one dataset, several ways of looking at it.
  *
  * Rendered on the server with real numbers so the page is correct before any
  * JavaScript runs, then handed to a client component that keeps it current
- * from the SSE stream. The board is one row per event; Events and Customers
- * remain as the deeper, searchable lists behind it.
+ * from the SSE stream.
+ *
+ * This replaced three separate pages. Filtering by status tab is what an
+ * Events list did; the table is what a Customers list did; the timeline behind
+ * a row is what an activity feed did. They were one dataset all along, and
+ * making a merchant navigate between them to assemble the picture was the
+ * cost of pretending otherwise.
  */
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { resolveMerchant } from "@/lib/merchants";
 import { loadBoard } from "@/lib/board";
@@ -25,18 +29,12 @@ export default async function BoardPage({
   if (!merchant) notFound();
 
   const board = await loadBoard(merchant.id);
-  const base = `/dashboard/${merchant.slug}`;
 
   return (
     <>
       <PageHead
-        title="Recovery board"
+        title="Dashboard"
         lede={`Last 90 days · ${merchant.business_name}`}
-        actions={
-          <Link className="btn btn--ghost" href={`${base}/events`}>
-            Search all events
-          </Link>
-        }
       />
 
       <LiveBoard slug={merchant.slug} initial={board} />
