@@ -176,6 +176,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     const timeZone = merchant?.timezone ?? "Asia/Kolkata";
     const intent = classifyReply(body, new Date(), timeZone);
 
+    // Read what the agent last asked BEFORE recording this message, because
+    // recording it makes *it* the newest row - and then the question this
+    // message is answering can no longer be seen. That is what made a menu
+    // choice fall through to the conversational agent: by the time the reply
+    // was drafted, no menu appeared to be pending.
+    const pending = new Map<string, string | null>();
+    for (const customer of customers) {
+      pending.set(customer.id, await pendingPrompt(customer.id).catch(() => null));
+    }
+
     for (const customer of customers) {
       await handle(customer, intent, body, params);
     }
@@ -189,7 +199,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (intent.kind !== "opt_out") {
       after(async () => {
         for (const customer of customers) {
-          await replyToCustomer(customer, body).catch((err) => {
+          await replyToCustomer(customer, body, pending.get(customer.id) ?? null).catch((err) => {
             // The inbound message is already recorded either way, so a failed
             // reply degrades to "a human answers this one".
             console.error("[whatsapp-in] reply failed", {
@@ -335,7 +345,11 @@ export async function GET(): Promise<NextResponse> {
  * Runs after the webhook has answered Twilio, so nothing here is on the
  * critical path and a failure costs a reply rather than a 500.
  */
-async function replyToCustomer(customer: Customer, body: string): Promise<void> {
+async function replyToCustomer(
+  customer: Customer,
+  body: string,
+  pending: string | null,
+): Promise<void> {
   if (!customer.phone) return;
 
   const merchant = await getMerchant(customer.merchant_id);
@@ -361,7 +375,7 @@ async function replyToCustomer(customer: Customer, body: string): Promise<void> 
     events,
     body,
     intent: classify(body, new Date(), merchant.timezone),
-    pending: await pendingPrompt(customer.id),
+    pending,
   });
 
   if (move.kind !== "converse") {

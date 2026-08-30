@@ -43,9 +43,29 @@ describe("rendering", () => {
     assert.match(text, /2\. Stop these messages/);
   });
 
-  test("says nothing is outstanding when nothing is", () => {
+  test("says nothing is outstanding only when nothing is", () => {
     const line = situationLine(merchant, [makeEvent({ status: "recovered" })]);
     assert.match(line, /nothing outstanding/i);
+  });
+
+  test("an event Tally stopped chasing is still money the customer owes", () => {
+    // Hitting the attempt cap is a decision about our own behaviour, not about
+    // their balance. Telling them "nothing outstanding" because we gave up
+    // would be false, and they would rightly act on it.
+    const line = situationLine(merchant, [
+      makeEvent({ status: "stopped", amount: 149900 }),
+    ]);
+    assert.match(line, /₹1,499/);
+    assert.doesNotMatch(line, /nothing outstanding/i);
+  });
+
+  test("adds up several open payments", () => {
+    const line = situationLine(merchant, [
+      makeEvent({ status: "queued", amount: 100000 }),
+      makeEvent({ status: "stopped", amount: 49900 }),
+    ]);
+    assert.match(line, /2 pending payments/);
+    assert.match(line, /₹1,499/);
   });
 });
 

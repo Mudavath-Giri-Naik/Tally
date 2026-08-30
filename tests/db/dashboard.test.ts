@@ -63,6 +63,7 @@ import {
 } from "../../src/lib/insights";
 import { listEventsFiltered } from "../../src/lib/events";
 import { getMerchantBySlug, resolveMerchant } from "../../src/lib/merchants";
+import { pendingPrompt } from "../../src/lib/agent/dialogue";
 
 let mandate: string;
 let swaseekh: string;
@@ -368,5 +369,73 @@ describe("listEventsFiltered", () => {
     const page = await listEventsFiltered(mandate);
     assert.equal(page.total, 0);
     assert.deepEqual(page.rows, []);
+  });
+});
+
+describe("pendingPrompt", () => {
+  async function seedAction(
+    merchantId: string,
+    eventId: string,
+    message: string,
+    guardrail: string | null,
+  ) {
+    await pool.query(
+      `insert into actions (event_id, merchant_id, channel, message, outcome, decision)
+       values ($1,$2,'whatsapp',$3,'sent',$4)`,
+      [
+        eventId,
+        merchantId,
+        message,
+        JSON.stringify({
+          root_cause: "unknown",
+          intervention: "send_message",
+          channel: "whatsapp",
+          rationale: "test",
+          source: "schedule",
+          ...(guardrail ? { guardrail } : {}),
+        }),
+      ],
+    );
+  }
+
+  test("reports the question the agent last asked", async () => {
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    await seedAction(mandate, event, "[reply] 1. See my options", "menu_root");
+
+    assert.equal(await pendingPrompt(asha), "menu_root");
+  });
+
+  test("reports nothing once the customer has spoken since", async () => {
+    // This is the contract the webhook depends on, and the reason it must read
+    // the pending prompt *before* recording the incoming message: recording it
+    // first makes the inbound row the newest one, the menu stops looking
+    // pending, and a menu choice falls through to the conversational agent.
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    await seedAction(mandate, event, "[reply] 1. See my options", "menu_root");
+    await seedAction(mandate, event, "[inbound] 1", "reply_needs_human");
+
+    assert.equal(await pendingPrompt(asha), null);
+  });
+
+  test("finds a menu in the message when the guardrail is used for something else", async () => {
+    // The worker's first dunning message appends a menu, but its guardrail is
+    // already explaining the recovery decision.
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    await seedAction(
+      mandate,
+      event,
+      "Your payment failed.\n\nReply with a number:\n1. See my options\n2. Stop these messages",
+      "card_expired is not retryable",
+    );
+
+    assert.equal(await pendingPrompt(asha), "menu_root");
+  });
+
+  test("reports nothing for a customer with no history", async () => {
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    assert.equal(await pendingPrompt(asha), null);
   });
 });

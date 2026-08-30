@@ -91,9 +91,11 @@ export function situationLine(
   merchant: Merchant,
   events: RecoveryEvent[],
 ): string {
-  const open = events.filter(
-    (e) => e.status === "queued" || e.status === "processing",
-  );
+  // Anything not confirmed paid is still owed, as far as the customer is
+  // concerned. An event Tally stopped chasing - the attempt cap, a risk flag -
+  // is a decision about our own behaviour, not about their balance, and
+  // telling them "nothing outstanding" because we gave up would be false.
+  const open = events.filter((e) => e.status !== "recovered");
   if (open.length === 0) {
     return `Hi - this is ${merchant.business_name}. There is nothing outstanding on your account right now.`;
   }

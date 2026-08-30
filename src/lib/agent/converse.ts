@@ -246,6 +246,16 @@ export async function repliesSentToday(customerId: string): Promise<number> {
 export const FALLBACK_MESSAGE =
   "Thanks for writing in - let me check this and come back to you shortly.";
 
+/**
+ * How long the holding line stays quiet before it may be sent again.
+ *
+ * Not "never twice in a row": that silenced the customer completely for as
+ * long as the model was down, so someone who came back twenty minutes later
+ * with a new question got nothing at all. Repeating it within a minute is
+ * noise; repeating it after a real gap is just answering the new message.
+ */
+export const FALLBACK_COOLDOWN_MS = 10 * 60 * 1000;
+
 export type ReplyOutcome =
   | { kind: "reply"; reply: AgentReply }
   | { kind: "fallback"; message: string; error: string }
@@ -285,12 +295,16 @@ export async function draftReply(
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
 
-    // Do not answer a stall with the same stall. If the last thing said was
-    // already the holding line, the model is still down and repeating it
-    // makes the business look broken rather than busy.
+    // Do not answer a stall with the same stall seconds later. But do answer
+    // again once real time has passed - a customer coming back with a new
+    // question after ten minutes is not the same event as them sending two
+    // messages in a row.
     const lastFromUs = [...ctx.turns].reverse().find((t) => t.who === "business");
     if (lastFromUs?.text.trim() === FALLBACK_MESSAGE) {
-      return { kind: "skipped", why: "no_model" };
+      const age = Date.now() - Date.parse(lastFromUs.at);
+      if (Number.isFinite(age) && age < FALLBACK_COOLDOWN_MS) {
+        return { kind: "skipped", why: "no_model" };
+      }
     }
 
     return { kind: "fallback", message: FALLBACK_MESSAGE, error };
