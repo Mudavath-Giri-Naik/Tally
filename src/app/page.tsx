@@ -109,7 +109,11 @@ export default function HomePage() {
           </header>
 
           {/* ── headline ── */}
-          <div className="mx-auto max-w-5xl px-4 pb-32 pt-16 text-center sm:px-6 sm:pt-24 sm:pb-48">
+          {/* Bottom padding has to clear the space the dashboard's raised
+              resting position (top:-26% in HeroReveal) reaches up into - that
+              offset is a percentage of a box whose height scales with viewport
+              width, so wider screens need more clearance here, not less. */}
+          <div className="mx-auto max-w-5xl px-4 pb-32 pt-16 text-center sm:px-6 sm:pt-24 sm:pb-80">
             <h1 className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[2.6rem] leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-6xl md:text-7xl lg:text-[5.5rem]">
               Revenue
               <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-[1.5rem] bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-2xl shadow-slate-900/30 sm:size-16 md:size-[4.5rem] lg:size-[5rem] -rotate-6 border-t border-slate-500">
