@@ -35,26 +35,34 @@ export function HeroReveal() {
   }, []);
 
   return (
-    <div ref={ref} className="relative mx-auto w-full max-w-6xl px-4 sm:px-6">
+    // No max-width here, deliberately: the hills need to reach the actual
+    // browser edges, not the content column's edges. The dashboard screenshot
+    // gets its own constrained wrapper nested inside instead.
+    <div ref={ref} className="relative w-full">
       <div className="relative aspect-[16/10] w-full sm:aspect-[16/9]">
+        <div className="absolute inset-0 mx-auto max-w-6xl px-4 sm:px-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/dashboard.png"
+            alt="Tally's live recovery dashboard"
+            className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl ring-1 ring-black/10 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl"
+            style={{
+              transform: `translateY(${(1 - progress) * 34}px) scale(${0.95 + progress * 0.05})`,
+              opacity: 0.55 + progress * 0.45,
+              transition: "opacity 60ms linear",
+            }}
+          />
+        </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/dashboard.png"
-          alt="Tally's live recovery dashboard"
-          className="absolute inset-x-2 top-0 rounded-xl shadow-2xl ring-1 ring-black/10 sm:inset-x-6 sm:rounded-2xl"
-          style={{
-            transform: `translateY(${(1 - progress) * 34}px) scale(${0.95 + progress * 0.05})`,
-            opacity: 0.55 + progress * 0.45,
-            transition: "opacity 60ms linear",
-          }}
-        />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/hills.png"
+          src="/bottom-hills.png"
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 w-full select-none"
-          style={{ transform: `translateY(${progress * 46}px)` }}
+          className="pointer-events-none absolute inset-x-0 bottom-0 w-screen max-w-none select-none"
+          style={{
+            left: "50%",
+            transform: `translateX(-50%) translateY(${progress * 46}px)`,
+          }}
         />
       </div>
     </div>
