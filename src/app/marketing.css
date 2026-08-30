@@ -5,6 +5,91 @@
  * rewriting them was not part of the ask. Imported after Tailwind so its
  * preflight does not override them.
  */
+
+/* ── the type these pages lost to Tailwind's preflight ──────────────────── */
+.shell,
+.topbar {
+  /* Their own colour tokens, which the shadcn theme does not define. */
+  --bg: var(--background);
+  --surface: var(--card);
+  --surface-2: var(--muted);
+  --border: var(--color-border, oklch(0.922 0 0));
+  --border-strong: var(--color-border, oklch(0.87 0 0));
+  --text: var(--foreground);
+  --text-2: var(--muted-foreground);
+  --text-3: var(--muted-foreground);
+  --accent: var(--primary);
+  --accent-hover: var(--primary);
+  --accent-soft: var(--muted);
+  --good: oklch(0.55 0.14 155);
+  --good-soft: oklch(0.95 0.03 155);
+  --warn: oklch(0.55 0.12 75);
+  --warn-soft: oklch(0.96 0.04 85);
+  --bad: var(--destructive);
+  --bad-soft: oklch(0.95 0.03 25);
+  --info-soft: var(--muted);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --shadow: 0 1px 2px oklch(0 0 0 / 0.05), 0 4px 12px oklch(0 0 0 / 0.04);
+  --mono: var(--font-mono);
+  --sans: var(--font-sans);
+
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.shell h1,
+.shell h2,
+.shell h3 {
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin: 0;
+  font-weight: 650;
+  text-wrap: balance;
+}
+.shell h1 { font-size: 2rem; }
+.shell h2 { font-size: 1.3rem; }
+.shell h3 { font-size: 1.05rem; }
+
+.shell p { margin: 0 0 16px; }
+.shell ul,
+.shell ol { padding-left: 22px; }
+.shell li { margin-bottom: 6px; }
+
+.shell a,
+.topbar a { color: var(--accent); text-decoration: none; }
+.shell a:hover { text-decoration: underline; }
+
+.shell code,
+.topbar code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.38em;
+  word-break: break-all;
+}
+
+.shell pre {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  overflow-x: auto;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+.shell pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  word-break: normal;
+}
+
+.shell table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+
 /* ── layout ─────────────────────────────────────────────────────────────── */
 .shell {
   max-width: 1080px;
