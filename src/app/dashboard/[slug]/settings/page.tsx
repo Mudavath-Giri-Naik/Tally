@@ -53,6 +53,7 @@ export default async function SettingsPage({
           timezone: merchant.timezone,
           max_attempts: merchant.max_attempts,
           channels_enabled: merchant.channels_enabled,
+          workflows_enabled: pub.workflows_enabled,
           active: merchant.active,
         }}
       />

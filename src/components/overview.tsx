@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Area,
   AreaChart,
@@ -38,27 +39,66 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   XIcon,
+  CheckIcon,
+  CheckCheckIcon,
+  Volume2Icon,
+  BanIcon,
+  RotateCcwIcon,
+  CreditCardIcon,
+  InfoIcon,
+  UserIcon,
+  ArrowLeftIcon,
+  MailIcon,
+  MailCheckIcon,
+  MailWarningIcon,
+  PhoneCallIcon,
+  CircleCheckIcon,
+  EllipsisVerticalIcon,
+  PauseIcon,
+  PlayIcon,
+  FlagIcon,
+  CalendarClockIcon,
+  FastForwardIcon,
+  ArchiveIcon,
+  Undo2Icon,
+  UserCogIcon,
 } from "lucide-react";
 
-import { formatINR } from "@/lib/types";
+import { formatINR, type AdminActionId } from "@/lib/types";
 import {
   BOARD_STATUSES,
   STATUS_META,
   RANGES,
-  WORKFLOW_TYPE_COUNT,
   formatDuration,
   delta,
+  INBOUND_PREFIX,
+  REPLY_PREFIX,
+  SUMMARY_PREFIX,
   type Dashboard,
   type BoardRow,
   type BoardStatus,
   type TimelineEntry,
 } from "@/lib/board";
+import {
+  ADMIN_ACTIONS,
+  availableAdminActions,
+  hasPendingStep,
+  type AdminActionDef,
+} from "@/lib/admin-actions";
+import {
+  WORKFLOWS,
+  WORKFLOW_IDS,
+  WORKFLOW_COUNT,
+  type WorkflowId,
+} from "@/lib/workflows";
 import { cn } from "@/lib/utils";
+import { useSidebar } from "@/components/ui/sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -76,6 +116,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   type ChartConfig,
   ChartContainer,
@@ -98,6 +152,10 @@ const STATUS_CLASS: Record<string, string> = {
     "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-900",
   stopped:
     "bg-muted text-muted-foreground border-border",
+  disputed:
+    "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-400 dark:border-purple-900",
+  written_off:
+    "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-800",
 };
 
 const DOT_CLASS: Record<string, string> = {
@@ -106,6 +164,8 @@ const DOT_CLASS: Record<string, string> = {
   voice: "bg-blue-500",
   human: "bg-red-500",
   stopped: "bg-muted-foreground/60",
+  disputed: "bg-purple-500",
+  written_off: "bg-slate-400",
 };
 
 function initials(name: string | null): string {
@@ -273,6 +333,309 @@ function MetricCard({
   );
 }
 
+/* ── workflows ───────────────────────────────────────────────────────────── */
+
+/**
+ * A short name for the table column, where the full label does not fit.
+ * The pills and the settings screen carry the full one.
+ */
+const WORKFLOW_SHORT: Record<WorkflowId, string> = {
+  checkout_abandonment: "Checkout",
+  failed_payment: "Failed payment",
+  subscription_autopay: "Subscription",
+  overdue_invoice: "Overdue invoice",
+};
+
+const WORKFLOW_CLASS: Record<WorkflowId, string> = {
+  checkout_abandonment:
+    "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/50 dark:text-sky-400 dark:border-sky-900",
+  failed_payment:
+    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/50 dark:text-orange-400 dark:border-orange-900",
+  subscription_autopay:
+    "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/50 dark:text-violet-400 dark:border-violet-900",
+  overdue_invoice:
+    "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/50 dark:text-teal-400 dark:border-teal-900",
+};
+
+/** Which workflow handled one case. Null is the promise-to-pay path - see workflowFor. */
+function WorkflowBadge({ workflow }: { workflow: WorkflowId | null }) {
+  if (!workflow) {
+    return (
+      <Badge variant="secondary" className="text-xs" title="Raised from a promise the customer made in conversation. Runs whatever the workflow settings say.">
+        Promise to pay
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="outline"
+      className={cn("text-xs", WORKFLOW_CLASS[workflow])}
+      title={WORKFLOWS[workflow].label}
+    >
+      {WORKFLOW_SHORT[workflow]}
+    </Badge>
+  );
+}
+
+/**
+ * The active-workflows indicator.
+ *
+ * Shows all four rather than only the enabled ones: "which am I not running"
+ * is the question this answers, and a row that silently omits the off ones
+ * cannot answer it.
+ */
+function WorkflowPills({ enabled, slug }: { enabled: WorkflowId[]; slug: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+        Workflows
+      </span>
+      {WORKFLOW_IDS.map((id) => {
+        const on = enabled.includes(id);
+        return (
+          <Badge
+            key={id}
+            variant="outline"
+            className={cn(
+              "gap-1.5 font-medium",
+              on ? WORKFLOW_CLASS[id] : "text-muted-foreground/70 border-dashed",
+            )}
+            title={on ? WORKFLOWS[id].summary : `Off — ${WORKFLOWS[id].summary}`}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                on ? "bg-current" : "bg-muted-foreground/40",
+              )}
+              aria-hidden="true"
+            />
+            {WORKFLOWS[id].label}
+            {!on && <span className="text-[0.65rem] uppercase">off</span>}
+          </Badge>
+        );
+      })}
+      <Link
+        href={`/dashboard/${slug}/settings`}
+        className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
+      >
+        Change
+      </Link>
+    </div>
+  );
+}
+
+/* ── admin overrides: the kebab menu and its dialog ─────────────────────────── */
+
+const ADMIN_ACTION_ICON: Record<AdminActionId, React.ComponentType<{ className?: string }>> = {
+  mark_paid: CircleCheckIcon,
+  pause_outreach: PauseIcon,
+  resume_outreach: PlayIcon,
+  escalate_human: UserIcon,
+  flag_disputed: FlagIcon,
+  snooze: CalendarClockIcon,
+  trigger_next_step: FastForwardIcon,
+  write_off: ArchiveIcon,
+  opt_out: BanIcon,
+  reopen_case: Undo2Icon,
+};
+
+/** The kebab menu on a customer row - only the actions valid for its current status. */
+function RowActionsMenu({
+  row, onOpenAction,
+}: {
+  row: BoardRow;
+  onOpenAction: (action: AdminActionDef) => void;
+}) {
+  const actions = availableAdminActions({
+    status: row.status,
+    paused: row.paused,
+    hasPendingStep: hasPendingStep(row),
+  });
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Actions for ${row.customer_name ?? "this customer"}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <EllipsisVerticalIcon className="size-4" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        {actions.length === 0 ? (
+          <DropdownMenuItem disabled>No actions available</DropdownMenuItem>
+        ) : (
+          actions.map((action) => {
+            const Icon = ADMIN_ACTION_ICON[action.id];
+            return (
+              <DropdownMenuItem
+                key={action.id}
+                variant={action.destructive ? "destructive" : "default"}
+                onClick={() => onOpenAction(action)}
+              >
+                <Icon className="size-4" />
+                {action.label}
+              </DropdownMenuItem>
+            );
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Local, unsubmitted state for whichever admin-action dialog is open. */
+interface OverrideFormState {
+  note: string;
+  choice: string;
+  otherText: string;
+  date: string;
+}
+
+const EMPTY_OVERRIDE_FORM: OverrideFormState = { note: "", choice: "", otherText: "", date: "" };
+
+/** Resolves the form into the one string the API wants, or an error to show instead of submitting. */
+function resolveOverridePayload(
+  action: AdminActionDef,
+  form: OverrideFormState,
+): { reasonText: string | null; snoozeUntil: string | null } | { error: string } {
+  switch (action.input.kind) {
+    case "none":
+      return { reasonText: null, snoozeUntil: null };
+    case "note":
+      if (action.input.required && !form.note.trim()) return { error: "This needs a reason first." };
+      return { reasonText: form.note.trim() || null, snoozeUntil: null };
+    case "choice": {
+      if (!form.choice) return { error: "Pick a reason first." };
+      if (form.choice === "Other" && !form.otherText.trim()) {
+        return { error: "Say what \"Other\" means here." };
+      }
+      const reasonText = form.choice === "Other" ? `Other: ${form.otherText.trim()}` : form.choice;
+      return { reasonText, snoozeUntil: null };
+    }
+    case "date": {
+      if (!form.date) return { error: "Pick a date first." };
+      const snoozeUntil = `${form.date}T09:00:00Z`;
+      if (Date.parse(snoozeUntil) <= Date.now()) return { error: "Pick a date in the future." };
+      return { reasonText: form.note.trim() || null, snoozeUntil };
+    }
+  }
+}
+
+/** The reason/note/date collector for one admin action - also opt-out's confirm step. */
+function AdminActionDialog({
+  row, action, onClose, onSubmit,
+}: {
+  row: BoardRow;
+  action: AdminActionDef;
+  onClose: () => void;
+  onSubmit: (payload: { reasonText: string | null; snoozeUntil: string | null }) => Promise<string | null>;
+}) {
+  const [form, setForm] = useState<OverrideFormState>(EMPTY_OVERRIDE_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const handleSubmit = useCallback(async () => {
+    const resolved = resolveOverridePayload(action, form);
+    if ("error" in resolved) { setError(resolved.error); return; }
+    setSubmitting(true);
+    setError(null);
+    const failure = await onSubmit(resolved);
+    setSubmitting(false);
+    if (failure) setError(failure);
+    else onClose();
+  }, [action, form, onSubmit, onClose]);
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{action.label}</DialogTitle>
+          <DialogDescription>
+            {action.description} This applies to <strong>{row.customer_name ?? "this customer"}</strong>'s{" "}
+            {formatINR(row.amount)} case.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          {action.confirm && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              This is permanent and cannot be undone from here - the customer will not be contacted again on any channel.
+            </p>
+          )}
+
+          {action.input.kind === "note" && (
+            <Textarea
+              value={form.note}
+              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+              placeholder={action.input.placeholder}
+              rows={3}
+              autoFocus
+            />
+          )}
+
+          {action.input.kind === "choice" && (
+            <>
+              <Select value={form.choice} onValueChange={(v) => setForm((f) => ({ ...f, choice: v ?? "" }))}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Pick a reason" /></SelectTrigger>
+                <SelectContent>
+                  {action.input.choices.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              {form.choice === "Other" && (
+                <Textarea
+                  value={form.otherText}
+                  onChange={(e) => setForm((f) => ({ ...f, otherText: e.target.value }))}
+                  placeholder={action.input.placeholder}
+                  rows={2}
+                  autoFocus
+                />
+              )}
+            </>
+          )}
+
+          {action.input.kind === "date" && (
+            <>
+              <Input
+                type="date"
+                min={todayStr}
+                value={form.date}
+                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+              />
+              <Textarea
+                value={form.note}
+                onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+                placeholder="Note (optional)"
+                rows={2}
+              />
+            </>
+          )}
+
+          {error && <p className="text-destructive text-sm">{error}</p>}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button
+            variant={action.destructive ? "destructive" : "default"}
+            onClick={() => void handleSubmit()}
+            disabled={submitting}
+          >
+            {submitting ? "Working…" : action.label}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ── the page ────────────────────────────────────────────────────────────── */
 
 const CAUSE_COLOURS = [
@@ -292,8 +655,19 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
   const [timeline, setTimeline] = useState<TimelineEntry[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
+  const [overrideTarget, setOverrideTarget] = useState<{ row: BoardRow; action: AdminActionDef } | null>(null);
+  const { isMobile, setOpen: setSidebarOpen } = useSidebar();
 
   useEffect(() => setData(initial), [initial]);
+
+  // The nav rail and the detail panel are both competing for width, so the
+  // rail collapses to icons for as long as the panel is open - on mobile the
+  // rail is already off-canvas and never competes for space, so it is left
+  // alone there.
+  useEffect(() => {
+    if (isMobile) return;
+    setSidebarOpen(!openEvent);
+  }, [openEvent, isMobile, setSidebarOpen]);
 
   useEffect(() => {
     const source = new EventSource(`/api/dashboard/${slug}/stream?days=${initial.days}`);
@@ -321,10 +695,12 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
       if (channelFilter !== "all" && (r.last_channel ?? "none") !== channelFilter) return false;
       if (!q) return true;
       const amount = r.amount === null ? "" : String(Math.round(r.amount / 100));
+      const workflow = r.workflow ? WORKFLOWS[r.workflow].label : "promise to pay";
       return (
         (r.customer_name ?? "").toLowerCase().includes(q) ||
         r.reason_label.toLowerCase().includes(q) ||
         r.reason.toLowerCase().includes(q) ||
+        workflow.toLowerCase().includes(q) ||
         amount.includes(q)
       );
     },
@@ -361,10 +737,8 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
     [data.rows, openEvent],
   );
 
-  const toggleRow = useCallback(
+  const loadTimeline = useCallback(
     async (eventId: string) => {
-      if (openEvent === eventId) { setOpenEvent(null); return; }
-      setOpenEvent(eventId);
       setTimeline(null);
       setTimelineError(null);
       try {
@@ -376,14 +750,60 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
         setTimelineError("That timeline could not be loaded. Try again.");
       }
     },
-    [openEvent, slug],
+    [slug],
+  );
+
+  const toggleRow = useCallback(
+    async (eventId: string) => {
+      if (openEvent === eventId) { setOpenEvent(null); return; }
+      setOpenEvent(eventId);
+      await loadTimeline(eventId);
+    },
+    [openEvent, loadTimeline],
+  );
+
+  /**
+   * Run one admin override, merge the fresh row back in immediately (no
+   * refetch of the whole board), and reload the timeline if that case's
+   * panel happens to be open - the new "admin action" card should appear
+   * without the merchant having to close and reopen the row.
+   */
+  const submitOverride = useCallback(
+    async (
+      row: BoardRow,
+      action: AdminActionDef,
+      payload: { reasonText: string | null; snoozeUntil: string | null },
+    ): Promise<string | null> => {
+      try {
+        const res = await fetch(`/api/dashboard/${slug}/events/${row.event_id}/override`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: action.id, ...payload }),
+        });
+        const json = (await res.json()) as { row?: BoardRow; error?: string };
+        if (!res.ok || !json.row) return json.error ?? "That action could not be applied.";
+
+        const updated = json.row;
+        setData((d) => ({
+          ...d,
+          rows: d.rows.map((r) => (r.event_id === updated.event_id ? updated : r)),
+        }));
+        if (openEvent === updated.event_id) await loadTimeline(updated.event_id);
+        return null;
+      } catch {
+        return "That action could not be applied. Try again.";
+      }
+    },
+    [slug, openEvent, loadTimeline],
   );
 
   const compliance = m.sent_total === 0 ? null : Math.round((m.sent_in_window / m.sent_total) * 100);
-  // Distinct event types active in this window, out of the fixed six the
-  // schema allows - "workflow" here means the kind of recovery, not a
-  // per-tenant configuration.
-  const activeWorkflows = new Set(data.rows.map((r) => r.event_type)).size;
+  // How many of the enabled workflows actually saw a case in this window.
+  // The headline number is what the merchant switched on; this is what
+  // actually happened, which is usually the smaller and more interesting one.
+  const activeWorkflows = new Set(
+    data.rows.map((r) => r.workflow).filter((w) => w !== null),
+  ).size;
   const prevCompliance = p.sent_total === 0 ? null : Math.round((p.sent_in_window / p.sent_total) * 100);
 
   const exportCsv = useCallback(() => {
@@ -407,11 +827,17 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
       `Escalated to voice,${m.escalated_voice}`,
       `Stopped,${m.stopped}`,
       "",
-      "Customer,Amount,Reason,Channel,Status,Attempts,Failed on",
+      "Workflow,Enabled",
+      ...WORKFLOW_IDS.map(
+        (id) => `${esc(WORKFLOWS[id].label)},${data.workflows_enabled.includes(id) ? "yes" : "no"}`,
+      ),
+      "",
+      "Customer,Amount,Workflow,Reason,Channel,Status,Attempts,Failed on",
       ...filtered.map((r) =>
         [
           esc(r.customer_name ?? "Unknown"),
           r.amount === null ? "" : r.amount / 100,
+          esc(r.workflow ? WORKFLOWS[r.workflow].label : "Promise to pay"),
           esc(r.reason_label),
           esc(r.last_channel ?? ""),
           esc(STATUS_META[r.status].label),
@@ -427,7 +853,7 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
     a.download = `tally-${slug}-${data.days}d-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [filtered, m, compliance, data.days, data.from, data.to, slug]);
+  }, [filtered, m, compliance, data.days, data.from, data.to, data.workflows_enabled, slug]);
 
   const spark = {
     recovered: data.series.map((d) => d.amount_recovered),
@@ -495,6 +921,9 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
         </div>
       </div>
 
+      {/* ── active workflows ── */}
+      <WorkflowPills enabled={data.workflows_enabled} slug={slug} />
+
       {/* ── metric row ── */}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <MetricCard
@@ -509,8 +938,8 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
         />
         <MetricCard
           icon={<WorkflowIcon className="size-4" />} colour="var(--chart-4)"
-          label="Active workflows" value={String(activeWorkflows)}
-          sub={`of ${WORKFLOW_TYPE_COUNT} workflow types`}
+          label="Active workflows" value={String(data.workflows_enabled.length)}
+          sub={`of ${WORKFLOW_COUNT} · ${activeWorkflows} seen in this window`}
           spark={spark.rate}
         />
         <MetricCard
@@ -715,8 +1144,9 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
         ))}
       </div>
 
-      {/* ── table ── */}
-      <Card className="gap-0 py-0">
+      {/* ── table + detail panel ── */}
+      <div className="flex flex-col items-start gap-6 lg:flex-row">
+      <Card className="min-w-0 flex-1 gap-0 py-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4 sm:p-6">
           <CardTitle>Recoveries</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
@@ -782,11 +1212,13 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
                 <TableRow>
                   <TableHead>Customer</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Workflow</TableHead>
                   <TableHead>Reason</TableHead>
                   <TableHead>Channel</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Attempts</TableHead>
                   <TableHead>Failed on</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -815,9 +1247,24 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
                     <TableCell className="text-right font-semibold tabular-nums">
                       {formatINR(row.amount)}
                     </TableCell>
+                    <TableCell><WorkflowBadge workflow={row.workflow} /></TableCell>
                     <TableCell><Badge variant="secondary">{row.reason_label}</Badge></TableCell>
                     <TableCell><ChannelMark channel={row.last_channel} /></TableCell>
-                    <TableCell><StatusBadge status={row.status} /></TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <StatusBadge status={row.status} />
+                        {row.paused && (
+                          <Badge variant="outline" className="gap-1 text-xs">
+                            <PauseIcon className="size-3" />Paused
+                          </Badge>
+                        )}
+                        {!row.paused && row.hold_until && Date.parse(row.hold_until) > Date.now() && (
+                          <Badge variant="outline" className="gap-1 text-xs">
+                            <CalendarClockIcon className="size-3" />Snoozed
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right">
                       <Badge
                         variant="outline"
@@ -828,6 +1275,9 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
                     </TableCell>
                     <TableCell className="text-muted-foreground whitespace-nowrap text-sm">
                       {shortDate(row.failed_on)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <RowActionsMenu row={row} onOpenAction={(action) => setOverrideTarget({ row, action })} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -870,9 +1320,334 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
       </Card>
 
       {openRow && (
-        <DetailPanel row={openRow} entries={timeline} error={timelineError}
-                     onClose={() => setOpenEvent(null)} />
+        <div className="w-full shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-7.5rem)] lg:w-[400px] xl:w-[440px]">
+          <DetailPanel row={openRow} entries={timeline} error={timelineError}
+                       onClose={() => setOpenEvent(null)} />
+        </div>
       )}
+      </div>
+
+      {overrideTarget && (
+        <AdminActionDialog
+          row={overrideTarget.row}
+          action={overrideTarget.action}
+          onClose={() => setOverrideTarget(null)}
+          onSubmit={(payload) => submitOverride(overrideTarget.row, overrideTarget.action, payload)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── attempt cards ───────────────────────────────────────────────────────── */
+
+/**
+ * A row's `outcome` as the merchant should read it, not as the enum spells
+ * it - "sent" and "delivered" are both a success as far as anyone here can
+ * tell, since neither channel gives us an open/read receipt to draw a finer
+ * line with.
+ */
+const OUTCOME_META: Record<string, { label: string; tone: "good" | "bad" | "muted" }> = {
+  sent: { label: "Sent", tone: "good" },
+  delivered: { label: "Delivered", tone: "good" },
+  failed: { label: "Failed", tone: "bad" },
+  escalated: { label: "Escalated", tone: "bad" },
+  skipped: { label: "Skipped", tone: "muted" },
+  no_action: { label: "No action taken", tone: "muted" },
+  pending: { label: "Pending", tone: "muted" },
+};
+
+const PILL_TONE_CLASS: Record<string, string> = {
+  good: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900",
+  bad: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900",
+  muted: "bg-muted text-muted-foreground border-border",
+};
+
+function outcomeMeta(outcome: string) {
+  return OUTCOME_META[outcome] ?? { label: outcome.replace(/_/g, " "), tone: "muted" as const };
+}
+
+function GuardrailBadge({ guardrail }: { guardrail: string | null }) {
+  if (!guardrail) return null;
+  return <Badge variant="secondary" className="text-xs">{guardrail.replace(/_/g, " ")}</Badge>;
+}
+
+/** A rounded, iconed chip for an outcome - "Opened, no reply" rather than a bare uppercase word. */
+function OutcomePill({
+  icon: Icon, label, tone,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  tone: "good" | "bad" | "muted";
+}) {
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold", PILL_TONE_CLASS[tone])}>
+      <Icon className="size-3.5" />
+      {label}
+    </span>
+  );
+}
+
+const EMAIL_OUTCOME_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  sent: MailCheckIcon, delivered: MailCheckIcon, failed: MailWarningIcon,
+};
+
+function EmailAttemptCard({ entry }: { entry: TimelineEntry }) {
+  const meta = outcomeMeta(entry.outcome);
+  return (
+    <div className="rounded-xl border p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Image src="/icons/email.png" alt="Email" width={18} height={18} className="rounded-[4px]" unoptimized />
+          <span className="text-sm font-semibold">Email</span>
+        </div>
+        <OutcomePill icon={EMAIL_OUTCOME_ICON[entry.outcome] ?? MailIcon} label={meta.label} tone={meta.tone} />
+      </div>
+      <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-xs tabular-nums">
+        {shortTime(entry.created_at)}
+        <GuardrailBadge guardrail={entry.guardrail} />
+        {entry.in_window === false && (
+          <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>outside window</Badge>
+        )}
+      </div>
+      {entry.rationale && <p className="text-muted-foreground mt-2 text-sm">{entry.rationale}</p>}
+      {entry.message && (
+        <div className="bg-muted/50 mt-3 rounded-md border p-3 text-sm whitespace-pre-wrap">
+          {entry.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VoiceAttemptCard({ entry }: { entry: TimelineEntry }) {
+  const meta = outcomeMeta(entry.outcome);
+  return (
+    <div className="rounded-xl border p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Image src="/icons/voice.png" alt="Call" width={18} height={18} className="rounded-[4px]" unoptimized />
+          <span className="text-sm font-semibold">Voice call</span>
+        </div>
+        <OutcomePill icon={PhoneCallIcon} label={meta.label} tone={meta.tone} />
+      </div>
+      <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-xs tabular-nums">
+        {shortTime(entry.created_at)}
+        <GuardrailBadge guardrail={entry.guardrail} />
+      </div>
+      {entry.rationale && <p className="text-muted-foreground mt-2 text-sm">{entry.rationale}</p>}
+      {entry.message && (
+        <div className="text-muted-foreground mt-3 flex items-start gap-2 rounded-md border border-dashed p-3 text-sm">
+          <Volume2Icon className="mt-0.5 size-4 shrink-0 opacity-70" aria-hidden="true" />
+          <span className="whitespace-pre-wrap">{entry.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A single tick, two ticks, or a failure mark - never a read receipt Twilio never gave us. */
+function WhatsAppTicks({ outcome }: { outcome: string }) {
+  if (outcome === "failed") {
+    return <TriangleAlertIcon className="text-destructive size-3.5 shrink-0" aria-label="Not delivered" />;
+  }
+  if (outcome === "delivered") {
+    return <CheckCheckIcon className="text-muted-foreground size-3.5 shrink-0" aria-label="Delivered" />;
+  }
+  if (outcome === "sent") {
+    return <CheckIcon className="text-muted-foreground size-3.5 shrink-0" aria-label="Sent" />;
+  }
+  return null;
+}
+
+/** One message inside the conversation - a bubble, not a card of its own. */
+function WhatsAppBubble({ entry }: { entry: TimelineEntry }) {
+  const raw = entry.message ?? "";
+  const inbound = raw.startsWith(INBOUND_PREFIX);
+  const text = inbound
+    ? raw.slice(INBOUND_PREFIX.length)
+    : raw.startsWith(REPLY_PREFIX)
+      ? raw.slice(REPLY_PREFIX.length)
+      : raw;
+  if (!text) return null;
+
+  return (
+    <div className={cn("flex", inbound ? "justify-start" : "justify-end")}>
+      <div
+        className={cn(
+          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap",
+          inbound
+            ? "bg-background border rounded-bl-sm"
+            : "bg-emerald-100 rounded-br-sm dark:bg-emerald-950/50",
+        )}
+      >
+        {text}
+        <span className="text-muted-foreground mt-1 flex items-center justify-end gap-1 text-[0.65rem] tabular-nums">
+          {shortTime(entry.created_at).split(", ").pop()}
+          {!inbound && <WhatsAppTicks outcome={entry.outcome} />}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** A whole exchange - every consecutive WhatsApp message grouped under one step. */
+function WhatsAppAttemptCard({ entries }: { entries: TimelineEntry[] }) {
+  const first = entries[0];
+  const anyOutOfWindow = entries.some((e) => e.in_window === false);
+  return (
+    <div className="rounded-xl border p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <Image src="/icons/whatsapp.png" alt="WhatsApp" width={18} height={18} className="rounded-[4px]" unoptimized />
+        <span className="text-sm font-semibold">WhatsApp</span>
+        {anyOutOfWindow && (
+          <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>outside window</Badge>
+        )}
+        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+          {shortDate(first.created_at)}
+        </span>
+      </div>
+      <div className="bg-muted/30 mt-3 flex flex-col gap-2 rounded-lg p-3">
+        {entries.map((e) => <WhatsAppBubble key={e.id} entry={e} />)}
+      </div>
+    </div>
+  );
+}
+
+/** What a no-channel decision looked like, mapped from the agent's own vocabulary. */
+const RESOLUTION_META: Record<
+  string,
+  { label: string; icon: React.ComponentType<{ className?: string }>; tone: "good" | "bad" | "muted" }
+> = {
+  stop: { label: "Stopped contacting", icon: BanIcon, tone: "muted" },
+  escalate_human: { label: "Escalated to a human", icon: UserIcon, tone: "bad" },
+  schedule_retry: { label: "Retry scheduled", icon: RotateCcwIcon, tone: "muted" },
+  request_new_method: { label: "Asked for a new payment method", icon: CreditCardIcon, tone: "muted" },
+  send_message: { label: "Message queued", icon: SendIcon, tone: "muted" },
+};
+
+function ResolutionCard({ entry }: { entry: TimelineEntry }) {
+  const resolution = entry.intervention ? RESOLUTION_META[entry.intervention] : undefined;
+  const Icon = resolution?.icon ?? InfoIcon;
+  const label = resolution?.label ?? outcomeMeta(entry.outcome).label;
+  const tone = resolution?.tone ?? outcomeMeta(entry.outcome).tone;
+
+  return (
+    <div className="bg-muted/30 rounded-xl border border-dashed p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Icon className={cn("size-4 shrink-0", tone === "good" ? "text-emerald-600 dark:text-emerald-400" : tone === "bad" ? "text-red-600 dark:text-red-400" : "text-muted-foreground")} aria-hidden="true" />
+        <span className="text-sm font-semibold">{label}</span>
+        <GuardrailBadge guardrail={entry.guardrail} />
+        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+          {shortTime(entry.created_at)}
+        </span>
+      </div>
+      {entry.rationale && <p className="text-muted-foreground mt-1.5 text-sm">{entry.rationale}</p>}
+    </div>
+  );
+}
+
+/** The final word on this event, once the provider has actually confirmed it. */
+function ResolvedBanner({ row }: { row: BoardRow }) {
+  if (!row.recovered_at) return null;
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
+      <CircleCheckIcon className="size-7 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+      <div className="min-w-0">
+        <div className="font-semibold text-emerald-800 dark:text-emerald-300">Recovered</div>
+        <div className="text-sm text-emerald-700/80 dark:text-emerald-400/80">
+          Payment of {formatINR(row.amount)} confirmed on {shortDate(row.recovered_at)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The timeline as a story, not a table: consecutive WhatsApp messages are one
+ * exchange, so they group into a single numbered step instead of one per
+ * message - which is also the only way to show a reply next to what it
+ * replied to.
+ */
+type AttemptGroup =
+  | { kind: "email" | "voice" | "resolution" | "admin"; entry: TimelineEntry }
+  | { kind: "whatsapp"; entries: TimelineEntry[] };
+
+function groupAttempts(entries: TimelineEntry[]): AttemptGroup[] {
+  const groups: AttemptGroup[] = [];
+  for (const e of entries) {
+    if (e.channel === "whatsapp") {
+      const last = groups[groups.length - 1];
+      if (last?.kind === "whatsapp") { last.entries.push(e); continue; }
+      groups.push({ kind: "whatsapp", entries: [e] });
+    } else if (e.channel === "email") {
+      groups.push({ kind: "email", entry: e });
+    } else if (e.channel === "voice") {
+      groups.push({ kind: "voice", entry: e });
+    } else if (e.admin_action) {
+      groups.push({ kind: "admin", entry: e });
+    } else {
+      groups.push({ kind: "resolution", entry: e });
+    }
+  }
+  return groups;
+}
+
+/**
+ * A merchant's own intervention, in the same stack as the automated attempts
+ * - grey and plain on purpose, so it reads as "someone stepped in here"
+ * without competing visually with the channel cards around it.
+ */
+function AdminActionCard({ entry }: { entry: TimelineEntry }) {
+  const id = entry.admin_action as AdminActionId | null;
+  const def = id ? ADMIN_ACTIONS[id] : null;
+  const Icon = id ? ADMIN_ACTION_ICON[id] : UserCogIcon;
+
+  return (
+    <div className="bg-muted/40 rounded-xl border p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="bg-muted flex size-6 shrink-0 items-center justify-center rounded-full">
+          <UserCogIcon className="size-3.5" aria-hidden="true" />
+        </span>
+        <span className="text-sm font-semibold">Admin action</span>
+        <Badge variant="secondary" className="gap-1 text-xs">
+          <Icon className="size-3" />
+          {def?.label ?? entry.admin_action}
+        </Badge>
+        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+          {shortTime(entry.created_at)}
+        </span>
+      </div>
+      {entry.rationale && <p className="text-muted-foreground mt-2 text-sm">{entry.rationale}</p>}
+    </div>
+  );
+}
+
+function AttemptGroupCard({ group }: { group: AttemptGroup }) {
+  if (group.kind === "email") return <EmailAttemptCard entry={group.entry} />;
+  if (group.kind === "voice") return <VoiceAttemptCard entry={group.entry} />;
+  if (group.kind === "whatsapp") return <WhatsAppAttemptCard entries={group.entries} />;
+  if (group.kind === "admin") return <AdminActionCard entry={group.entry} />;
+  return <ResolutionCard entry={group.entry} />;
+}
+
+/** One numbered rail step: a marker connected to the next by a running line. */
+function TimelineStep({
+  index, isLast, children,
+}: {
+  index: number;
+  isLast: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex flex-col items-center">
+        <span className="border-primary text-primary bg-background z-10 flex size-6 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold tabular-nums">
+          {index}
+        </span>
+        {!isLast && <span className="bg-border w-px flex-1" aria-hidden="true" />}
+      </div>
+      <div className="min-w-0 flex-1 pb-4">{children}</div>
     </div>
   );
 }
@@ -889,13 +1664,29 @@ function DetailPanel({
 }) {
   const sent = entries?.filter((e) => e.in_window !== null) ?? [];
   const outOfWindow = sent.filter((e) => e.in_window === false).length;
+  // The agent's own conversation-summary notes are memory, not something that
+  // happened to the customer - they never render as a step, so an event whose
+  // only rows are summaries must fall back to the empty state rather than an
+  // empty gap where the timeline should be.
+  const visible = entries?.filter((e) => !e.message?.startsWith(SUMMARY_PREFIX)) ?? [];
+  const groups = groupAttempts(visible);
+  const stepCount = groups.length + (row.recovered_at ? 1 : 0);
   const elapsed =
     row.recovered_at !== null
       ? (Date.parse(row.recovered_at) - Date.parse(row.failed_on)) / 1000
       : (Date.now() - Date.parse(row.failed_on)) / 1000;
 
   return (
-    <Card className="gap-0 py-0">
+    <Card className="gap-0 py-0 h-full max-h-full overflow-hidden">
+      <div className="flex items-center gap-2 border-b p-3 sm:px-4">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Back to the table">
+          <ArrowLeftIcon className="size-4" />
+        </Button>
+        <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+          Customer detail panel
+        </span>
+      </div>
+
       <div className="flex items-center gap-3 border-b p-4 sm:p-6">
         <Avatar className="size-10">
           <AvatarFallback className="text-sm font-bold">{initials(row.customer_name)}</AvatarFallback>
@@ -904,74 +1695,47 @@ function DetailPanel({
           <div className="font-semibold">{row.customer_name ?? "Unknown customer"}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
             <strong className="tabular-nums">{formatINR(row.amount)}</strong>
+            <WorkflowBadge workflow={row.workflow} />
             <Badge variant="secondary">{row.reason_label}</Badge>
             <StatusBadge status={row.status} />
             <ChannelMark channel={row.last_channel} />
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
-          <XIcon className="size-4" />
-        </Button>
       </div>
 
-      {error && <p className="text-destructive p-8 text-center text-sm">{error}</p>}
-      {!entries && !error && (
-        <p className="text-muted-foreground p-8 text-center text-sm">Loading the timeline…</p>
-      )}
-      {entries && entries.length === 0 && (
-        <p className="text-muted-foreground p-8 text-center text-sm">
-          Nothing has happened on this event yet.
-        </p>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {error && <p className="text-destructive p-8 text-center text-sm">{error}</p>}
+        {!entries && !error && (
+          <p className="text-muted-foreground p-8 text-center text-sm">Loading the timeline…</p>
+        )}
+        {entries && groups.length === 0 && !row.recovered_at && (
+          <p className="text-muted-foreground p-8 text-center text-sm">
+            Nothing has happened on this event yet.
+          </p>
+        )}
 
-      {entries && entries.length > 0 && (
-        <ol className="p-4 sm:p-6">
-          {entries.map((e) => (
-            <li key={e.id} className="border-border relative grid gap-3 border-l py-3 pl-5 sm:grid-cols-[112px_minmax(0,1fr)]">
-              <span
-                className={cn(
-                  "border-background absolute -left-[5px] top-[18px] size-2.5 rounded-full border-2",
-                  e.outcome === "sent" || e.outcome === "delivered" ? "bg-emerald-500"
-                    : e.outcome === "escalated" ? "bg-red-500"
-                      : e.outcome === "failed" ? "bg-destructive" : "bg-muted-foreground/60",
-                )}
-                aria-hidden="true"
-              />
-              <span className="text-muted-foreground text-xs tabular-nums">{shortTime(e.created_at)}</span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={cn(
-                    "text-xs font-bold uppercase tracking-wide",
-                    e.outcome === "sent" || e.outcome === "delivered" ? "text-emerald-600 dark:text-emerald-400"
-                      : e.outcome === "escalated" ? "text-red-600 dark:text-red-400"
-                        : "text-muted-foreground",
-                  )}>
-                    {e.outcome.replace(/_/g, " ")}
-                  </span>
-                  {e.channel && <Badge variant="outline" className="text-xs">{e.channel}</Badge>}
-                  {e.in_window === false && (
-                    <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>
-                      outside window
-                    </Badge>
-                  )}
-                  {e.guardrail && (
-                    <Badge variant="secondary" className="text-xs">{e.guardrail.replace(/_/g, " ")}</Badge>
-                  )}
-                </div>
-                {e.rationale && <p className="text-muted-foreground mt-1.5 text-sm">{e.rationale}</p>}
-                {e.message && (
-                  <p className="bg-muted text-muted-foreground mt-2 rounded-md border p-2.5 text-sm whitespace-pre-wrap">
-                    {e.message}
-                  </p>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+        {entries && stepCount > 0 && (
+          <div className="p-4 sm:p-6">
+            {groups.map((g, i) => (
+              <TimelineStep
+                key={g.kind === "whatsapp" ? g.entries[0].id : g.entry.id}
+                index={i + 1}
+                isLast={i === groups.length - 1 && !row.recovered_at}
+              >
+                <AttemptGroupCard group={g} />
+              </TimelineStep>
+            ))}
+            {row.recovered_at && (
+              <TimelineStep index={groups.length + 1} isLast>
+                <ResolvedBanner row={row} />
+              </TimelineStep>
+            )}
+          </div>
+        )}
+      </div>
 
       <Separator />
-      <div className="text-muted-foreground p-4 text-sm sm:px-6">
+      <div className="text-muted-foreground shrink-0 p-4 text-sm sm:px-6">
         {row.status === "recovered"
           ? <>Recovered in <strong className="text-foreground">{formatDuration(elapsed)}</strong></>
           : <>Open for <strong className="text-foreground">{formatDuration(elapsed)}</strong></>}

@@ -12,6 +12,14 @@ import { useState } from "react";
 import Link from "next/link";
 
 import { CopyField } from "@/components/copy-field";
+import {
+  BUSINESS_TYPES,
+  WORKFLOW_IDS,
+  WORKFLOWS,
+  workflowsForBusinessType,
+  type BusinessType,
+  type WorkflowId,
+} from "@/lib/workflows";
 
 interface Success {
   merchant: {
@@ -48,6 +56,10 @@ export default function OnboardingPage() {
     max_attempts: 3,
   });
   const [channels, setChannels] = useState<string[]>(["email", "whatsapp"]);
+  // Null until the merchant answers, so the workflow list stays hidden rather
+  // than showing an arbitrary pre-selection nobody asked for.
+  const [businessType, setBusinessType] = useState<BusinessType | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowId[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
@@ -60,6 +72,25 @@ export default function OnboardingPage() {
   function toggleChannel(id: string) {
     setChannels((c) =>
       c.includes(id) ? c.filter((x) => x !== id) : [...c, id],
+    );
+  }
+
+  /**
+   * Answering the business-type question re-runs the pre-check, replacing
+   * whatever was there - the answer is the recommendation, so changing the
+   * answer has to change what is recommended rather than merging with a
+   * previous answer's suggestions.
+   */
+  function chooseBusinessType(type: BusinessType) {
+    setBusinessType(type);
+    setWorkflows(workflowsForBusinessType(type));
+  }
+
+  function toggleWorkflow(id: WorkflowId) {
+    setWorkflows((w) =>
+      w.includes(id)
+        ? w.filter((x) => x !== id)
+        : WORKFLOW_IDS.filter((x) => x === id || w.includes(x)),
     );
   }
 
@@ -77,6 +108,9 @@ export default function OnboardingPage() {
           whatsapp_number: form.whatsapp_number || null,
           voice_number: form.voice_number || null,
           channels_enabled: channels,
+          // Omitted entirely when the question was skipped, so the server
+          // applies its own default rather than storing an empty list.
+          workflows_enabled: businessType ? workflows : undefined,
         }),
       });
       const json = await res.json();
@@ -231,6 +265,67 @@ export default function OnboardingPage() {
         </div>
 
         <div className="card" style={{ marginTop: 16 }}>
+          <h3 style={{ marginBottom: 6 }}>What kind of business is this?</h3>
+          <p className="field__hint" style={{ marginBottom: 18 }}>
+            This only picks a starting point for your workflows. You can change
+            any of it on the next line, and again later in Settings.
+          </p>
+
+          <div className="checkbox-row">
+            {BUSINESS_TYPES.map((b) => (
+              <label key={b.id} className="checkbox">
+                <input
+                  type="radio"
+                  name="business_type"
+                  checked={businessType === b.id}
+                  onChange={() => chooseBusinessType(b.id)}
+                />
+                <span>
+                  {b.label}{" "}
+                  <span className="muted small">&mdash; {b.note}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {businessType && (
+            <div className="field" style={{ marginTop: 24 }}>
+              <span className="field__label">Workflows</span>
+              <div className="field__hint" style={{ marginBottom: 12 }}>
+                Pre-checked for a {BUSINESS_TYPES.find((b) => b.id === businessType)?.label.toLowerCase()}{" "}
+                business. Tally detects and classifies everything regardless —
+                these decide what it will actually contact someone about.
+              </div>
+              <div className="checkbox-row">
+                {WORKFLOW_IDS.map((id) => (
+                  <label key={id} className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={workflows.includes(id)}
+                      onChange={() => toggleWorkflow(id)}
+                    />
+                    <span>
+                      {WORKFLOWS[id].label}{" "}
+                      <span className="muted small">
+                        &mdash; {WORKFLOWS[id].summary}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {workflows.length === 0 && (
+                <div className="field__error">
+                  Keep at least one workflow on, or Tally has nothing to recover.
+                </div>
+              )}
+              {errorField === "workflows_enabled" && (
+                <div className="field__error">{error}</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
           <h3 style={{ marginBottom: 16 }}>How Tally may contact your customers</h3>
 
           <div className="field">
@@ -330,10 +425,10 @@ export default function OnboardingPage() {
         <button
           className="btn"
           type="submit"
-          disabled={busy}
+          disabled={busy || (businessType !== null && workflows.length === 0)}
           style={{ marginTop: 24 }}
         >
-          {busy ? "Connecting…" : "Connect business"}
+          {busy ? "Connecting…" : "Enable and connect business"}
         </button>
       </form>
     </div>

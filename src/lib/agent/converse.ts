@@ -21,8 +21,11 @@ import { db } from "../supabase";
 import { getProvider } from "./providers";
 import { profileFor } from "../classify";
 import { formatINR } from "../types";
+import { INBOUND_PREFIX, REPLY_PREFIX, SUMMARY_PREFIX } from "../board";
 import type { Customer, Merchant, RecoveryEvent } from "../types";
 import type { AgentReply, AgentSummary } from "./providers";
+
+export { INBOUND_PREFIX, REPLY_PREFIX, SUMMARY_PREFIX };
 
 /**
  * How many auto-replies one customer can draw in a rolling day.
@@ -38,10 +41,6 @@ export function dailyReplyCap(): number {
   return Number.isInteger(n) && n >= 0 ? n : DEFAULT_DAILY_REPLY_CAP;
 }
 
-/** Prefixes that mark who said what, in a table that also holds outbound copy. */
-export const INBOUND_PREFIX = "[inbound] ";
-export const REPLY_PREFIX = "[reply] ";
-export const SUMMARY_PREFIX = "[conversation] ";
 
 export const CONVERSE_SYSTEM_PROMPT = `You are a recovery agent for an Indian business, replying on WhatsApp to a customer whose payment did not go through. Your job is to actually get the money back - not merely to answer questions politely.
 

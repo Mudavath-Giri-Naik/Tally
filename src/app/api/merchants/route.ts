@@ -14,6 +14,7 @@ import {
   type OnboardingInput,
 } from "@/lib/merchants";
 import { PUBLIC_URL } from "@/lib/env";
+import { normaliseWorkflows } from "@/lib/workflows";
 import type { Channel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -53,6 +54,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         ? Number(body.max_attempts)
         : undefined,
     channels_enabled: asChannels(body.channels_enabled),
+    // Undefined rather than an empty array when nothing usable was sent, so
+    // createMerchant falls back to all four rather than storing "none on".
+    workflows_enabled:
+      body.workflows_enabled === undefined
+        ? undefined
+        : normaliseWorkflows(body.workflows_enabled),
   };
 
   try {

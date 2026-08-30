@@ -6,6 +6,8 @@
  * so this module does.
  */
 import { db } from "./supabase";
+import { boardRowForEvent, type BoardRow } from "./board";
+import { ADMIN_ACTIONS, hasPendingStep } from "./admin-actions";
 import type {
   RecoveryEvent,
   Action,
@@ -16,6 +18,8 @@ import type {
   EventType,
   EventStatus,
   RootCause,
+  AdminActionId,
+  Intervention,
 } from "./types";
 
 export interface IngestInput {
@@ -290,6 +294,9 @@ export async function updateEvent(
       // promise on a new day, not a second promise - so the date has to be
       // updatable in place rather than only settable at creation.
       | "due_date"
+      // Admin overrides: pause/resume and snooze.
+      | "paused"
+      | "hold_until"
     >
   >,
 ): Promise<RecoveryEvent> {
@@ -316,6 +323,188 @@ export async function requeueFor(
     claimed_by: null,
     claimed_at: null,
   });
+}
+
+/** One event by id, scoped to a merchant so a guessed id from another tenant returns nothing. */
+export async function getEvent(
+  merchantId: string,
+  eventId: string,
+): Promise<RecoveryEvent | null> {
+  const { data, error } = await db()
+    .from("events")
+    .select("*")
+    .eq("id", eventId)
+    .eq("merchant_id", merchantId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load the case: ${error.message}`);
+  return (data as RecoveryEvent) ?? null;
+}
+
+/** A rejected override - the request was well-formed but not allowed. Maps to a 4xx, not a 500. */
+export class AdminActionError extends Error {}
+
+export interface AdminOverrideInput {
+  merchantId: string;
+  eventId: string;
+  action: AdminActionId;
+  /** Free text from a note, or a resolved "choice: detail" string. Null when the action takes none. */
+  reasonText: string | null;
+  /** ISO date string - required and only meaningful for "snooze". */
+  snoozeUntil?: string | null;
+}
+
+/**
+ * Run one manual override.
+ *
+ * Re-derives the case's current status from the same SQL the board itself
+ * uses rather than trusting whatever the client last rendered, so a stale
+ * dropdown can never apply an action the case has since outgrown. Every
+ * override still writes to `actions` exactly like an automated decision does
+ * - channel null, source "admin" - so the timeline reads as one story.
+ */
+export async function applyAdminOverride(input: AdminOverrideInput): Promise<BoardRow> {
+  const { merchantId, eventId, action, reasonText } = input;
+
+  const event = await getEvent(merchantId, eventId);
+  if (!event) throw new AdminActionError("No such case for this business.");
+
+  const before = await boardRowForEvent(merchantId, eventId);
+  if (!before) throw new AdminActionError("No such case for this business.");
+
+  const def = ADMIN_ACTIONS[action];
+  if (!def) throw new AdminActionError("Unknown action.");
+
+  const ctx = {
+    status: before.status,
+    paused: before.paused,
+    hasPendingStep: hasPendingStep(before),
+  };
+  if (!def.availableFor(ctx)) {
+    throw new AdminActionError(`"${def.label}" is not available on a case in this state.`);
+  }
+
+  const needsText = def.input.kind !== "none" && (def.input.kind !== "note" || def.input.required);
+  if (needsText && !reasonText?.trim()) {
+    throw new AdminActionError(`"${def.label}" needs a reason before it can run.`);
+  }
+
+  let snoozeUntilIso: string | null = null;
+  if (def.input.kind === "date") {
+    const parsed = input.snoozeUntil ? new Date(input.snoozeUntil) : null;
+    if (!parsed || Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+      throw new AdminActionError("Pick a valid date in the future to snooze until.");
+    }
+    snoozeUntilIso = parsed.toISOString();
+  }
+
+  const intervention: Intervention = "admin_override";
+  let outcome: ActionOutcome = "no_action";
+  let rationale = def.label;
+  const note = reasonText?.trim() || null;
+
+  switch (action) {
+    case "mark_paid":
+      await updateEvent(eventId, {
+        status: "recovered",
+        recovered_amount: event.amount,
+        next_attempt_at: null,
+      });
+      rationale = ["Marked as paid manually.", note].filter(Boolean).join(" ");
+      break;
+
+    case "pause_outreach":
+      await updateEvent(eventId, { paused: true });
+      rationale = ["Outreach paused by the merchant.", note].filter(Boolean).join(" ");
+      break;
+
+    case "resume_outreach":
+      await updateEvent(eventId, { paused: false });
+      rationale = "Outreach resumed by the merchant.";
+      break;
+
+    case "escalate_human":
+      await updateEvent(eventId, {
+        status: "stopped",
+        stop_reason: "admin_escalated",
+        next_attempt_at: null,
+      });
+      outcome = "escalated";
+      rationale = ["Escalated to a human by the merchant.", note].filter(Boolean).join(" ");
+      break;
+
+    case "flag_disputed":
+      await updateEvent(eventId, {
+        status: "stopped",
+        stop_reason: "admin_disputed",
+        next_attempt_at: null,
+      });
+      rationale = ["Flagged as disputed by the merchant.", note].filter(Boolean).join(" ");
+      break;
+
+    case "snooze":
+      await updateEvent(eventId, { hold_until: snoozeUntilIso });
+      rationale = [
+        `Snoozed until ${snoozeUntilIso!.slice(0, 10)} by the merchant.`,
+        note,
+      ].filter(Boolean).join(" ");
+      break;
+
+    case "trigger_next_step":
+      await updateEvent(eventId, { next_attempt_at: new Date().toISOString() });
+      rationale = "Next step triggered immediately by the merchant.";
+      break;
+
+    case "write_off":
+      await updateEvent(eventId, {
+        status: "stopped",
+        stop_reason: "admin_written_off",
+        next_attempt_at: null,
+      });
+      rationale = ["Written off by the merchant.", note].filter(Boolean).join(" ");
+      break;
+
+    case "opt_out":
+      if (!event.customer_id) {
+        throw new AdminActionError("This case has no customer on file to opt out.");
+      }
+      await optOutCustomer(event.customer_id);
+      rationale = [
+        "Opted out by the merchant - no further contact on any channel.",
+        note,
+      ].filter(Boolean).join(" ");
+      break;
+
+    case "reopen_case":
+      await updateEvent(eventId, {
+        status: "queued",
+        stop_reason: null,
+        next_attempt_at: null,
+        paused: false,
+        hold_until: null,
+      });
+      rationale = ["Reopened by the merchant.", note].filter(Boolean).join(" ");
+      break;
+  }
+
+  await recordAction({
+    eventId,
+    merchantId,
+    channel: null,
+    message: note,
+    outcome,
+    decision: {
+      root_cause: event.reason ?? "unknown",
+      intervention,
+      channel: null,
+      rationale,
+      source: "admin",
+      admin_action: action,
+    },
+  });
+
+  const after = await boardRowForEvent(merchantId, eventId);
+  if (!after) throw new AdminActionError("The case was updated but could not be reloaded.");
+  return after;
 }
 
 /**

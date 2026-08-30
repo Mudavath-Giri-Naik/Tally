@@ -15,6 +15,7 @@ import {
   ValidationError,
 } from "@/lib/merchants";
 import { PUBLIC_URL } from "@/lib/env";
+import { normaliseWorkflows } from "@/lib/workflows";
 import type { Channel, Merchant } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -31,6 +32,7 @@ type Patch = Partial<
     | "timezone"
     | "max_attempts"
     | "channels_enabled"
+    | "workflows_enabled"
     | "active"
   >
 >;
@@ -83,6 +85,17 @@ function readPatch(body: Record<string, unknown>): Patch {
       );
     }
     patch.channels_enabled = channels;
+  }
+
+  if (body.workflows_enabled !== undefined) {
+    const workflows = normaliseWorkflows(body.workflows_enabled);
+    if (workflows.length === 0) {
+      throw new ValidationError(
+        "workflows_enabled",
+        "Keep at least one workflow on, or Tally has nothing to recover.",
+      );
+    }
+    patch.workflows_enabled = workflows;
   }
 
   if (body.active !== undefined) {

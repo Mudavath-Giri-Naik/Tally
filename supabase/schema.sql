@@ -38,14 +38,57 @@ create table if not exists merchants (
   max_attempts          int         not null default 3,
   channels_enabled      text[]      not null default array['email','whatsapp','voice'],
 
+  -- [+] Workflows: which of the four kinds of recovery this merchant runs.
+  -- Chosen at onboarding from their business type, editable in settings. The
+  -- default is all four - a merchant who never chose is better served by Tally
+  -- chasing something it need not have than by silently ignoring real lost
+  -- revenue. See src/lib/workflows.ts, which owns the mapping from an event to
+  -- one of these.
+  workflows_enabled     text[]      not null default array[
+    'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+  ],
+
   active                boolean     not null default true,  -- [+] pause a merchant without deleting them
   created_at            timestamptz not null default now(),
 
   constraint merchants_channels_valid check (
     channels_enabled <@ array['email','whatsapp','voice']::text[]
   ),
+  constraint merchants_workflows_valid check (
+    workflows_enabled <@ array[
+      'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+    ]::text[]
+  ),
   constraint merchants_max_attempts_sane check (max_attempts between 1 and 10)
 );
+
+-- Workflows, for a database created before this column existed. This has to
+-- run here, above everything that reads it: `create table if not exists`
+-- leaves an already-deployed table untouched, so on an existing database the
+-- column arrives only from this line. Backfilling all four keeps behaviour
+-- identical across the migration - every category stays on until the merchant
+-- chooses otherwise.
+alter table merchants add column if not exists workflows_enabled text[] not null default array[
+  'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+];
+
+-- The check constraint needs the same treatment, and cannot ride along on the
+-- alter above: on an existing table the constraint declared in the create
+-- block never runs, so without this an already-deployed database would accept
+-- any string at all in that column. Postgres has no `add constraint if not
+-- exists`, hence the guard.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'merchants_workflows_valid'
+  ) then
+    alter table merchants add constraint merchants_workflows_valid check (
+      workflows_enabled <@ array[
+        'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+      ]::text[]
+    );
+  end if;
+end $$;
 
 -- --- customers -------------------------------------------------------------
 create table if not exists customers (
@@ -98,6 +141,11 @@ create table if not exists events (
   recovered_amount  bigint,
   -- [+] raw provider payload + derived context (order id, card network, ...)
   metadata          jsonb not null default '{}'::jsonb,
+  -- [+] admin overrides (see "Pause outreach" / "Snooze until a date"): these
+  -- suppress the worker's claim without touching status or stop_reason, so
+  -- the case still reads as whatever it was - just not contacted right now.
+  paused            boolean not null default false,
+  hold_until        timestamptz,
 
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
@@ -111,6 +159,13 @@ create table if not exists events (
   )),
   constraint events_amount_nonneg check (amount is null or amount >= 0)
 );
+
+-- Admin overrides, for a database created before these columns existed. Same
+-- reason as the merchants alter above, and same hard requirement about where
+-- it sits: claim_events below filters on both of these, so it cannot be
+-- created until they are guaranteed to be there.
+alter table events add column if not exists paused     boolean not null default false;
+alter table events add column if not exists hold_until timestamptz;
 
 -- Idempotency. Razorpay retries webhook deliveries; this makes a replay a
 -- no-op insert rather than a second dunning message to the same customer.
@@ -196,6 +251,11 @@ as $fn$
     where e.status = 'queued'
       and m.active
       and (e.next_attempt_at is null or e.next_attempt_at <= now())
+      -- Admin overrides: "pause outreach" and "snooze until a date" both
+      -- suppress the worker without touching status, so they are checked
+      -- here rather than by giving them their own event status.
+      and not e.paused
+      and (e.hold_until is null or e.hold_until <= now())
   ),
   locked as (
     select e.id
@@ -444,6 +504,7 @@ $fn$;
 -- address instead of the second one failing to onboard.
 -- ===========================================================================
 alter table merchants add column if not exists slug text;
+
 
 create or replace function slugify(p_text text) returns text
 language sql immutable
@@ -700,7 +761,12 @@ create or replace function merchant_board(
   p_since       timestamptz default now() - interval '90 days',
   -- Null means "up to now". A bound taken from the application's clock would
   -- drop a row the database stamped a fraction of a second later.
-  p_until       timestamptz default null
+  p_until       timestamptz default null,
+  -- [+] admin overrides: look up one event by id regardless of when it
+  -- happened, so a kebab-menu action can validate against the same status
+  -- this function would show on the board - one derivation, not two that
+  -- could drift apart. Sidesteps p_since/p_until entirely when set.
+  p_event_id    uuid default null
 ) returns table (
   event_id       uuid,
   customer_id    uuid,
@@ -716,7 +782,10 @@ create or replace function merchant_board(
   -- The event's own type (payment_failed, cart_abandoned, ...). Fixed at six
   -- values by the events_type_valid check constraint - this is what "Active
   -- workflows" on the dashboard counts distinct occurrences of.
-  event_type     text
+  event_type     text,
+  paused         boolean,
+  hold_until     timestamptz,
+  next_attempt_at timestamptz
 )
 language sql stable
 as $fn$
@@ -750,8 +819,17 @@ as $fn$
          case
            when e.status = 'recovered' then 'recovered'
            when coalesce(c.opted_out, false) then 'opted_out'
+           -- [+] admin overrides: flag as disputed / written off take priority
+           -- over the generic 'stopped' bucket below, same mechanism as the
+           -- pre-existing needs_human carve-out - a distinct stop_reason.
            when e.status in ('stopped', 'unrecoverable')
-            and e.stop_reason in ('risk_flagged', 'repeat_failure_across_cycles')
+            and e.stop_reason = 'admin_disputed'
+             then 'disputed'
+           when e.status in ('stopped', 'unrecoverable')
+            and e.stop_reason = 'admin_written_off'
+             then 'written_off'
+           when e.status in ('stopped', 'unrecoverable')
+            and e.stop_reason in ('risk_flagged', 'repeat_failure_across_cycles', 'admin_escalated')
              then 'needs_human'
            when lc.channel = 'voice' then 'escalated_voice'
            when e.status in ('stopped', 'unrecoverable') then 'stopped'
@@ -762,15 +840,19 @@ as $fn$
          e.created_at,
          case when e.status = 'recovered' then e.updated_at end,
          rc.channel,
-         e.type
+         e.type,
+         e.paused,
+         e.hold_until,
+         e.next_attempt_at
   from events e
   join merchants m on m.id = e.merchant_id
   left join customers c on c.id = e.customer_id
   left join latest_channel lc on lc.event_id = e.id
   left join reached rc on rc.event_id = e.id
   where e.merchant_id = p_merchant_id
-    and e.created_at >= p_since
-    and (p_until is null or e.created_at < p_until)
+    and (p_event_id is not null or e.created_at >= p_since)
+    and (p_event_id is not null or p_until is null or e.created_at < p_until)
+    and (p_event_id is null or e.id = p_event_id)
   order by e.created_at desc;
 $fn$;
 
@@ -820,10 +902,13 @@ as $fn$
     'amount_at_risk',
       (select coalesce(sum(amount), 0) from board
         where status in ('chasing', 'escalated_voice', 'needs_human')),
+    -- Written off is excluded from both sides of this fraction: it is a
+    -- business decision to stop chasing, not a failed recovery attempt, and
+    -- should not move the rate in either direction.
     'recovery_rate',
       (select case when count(*) = 0 then 0
               else round(100.0 * count(*) filter (where status = 'recovered') / count(*))
-              end from board),
+              end from board where status <> 'written_off'),
     'avg_recovery_seconds',
       (select round(avg(extract(epoch from (recovered_at - failed_on))))
          from board where status = 'recovered' and recovered_at is not null),
@@ -982,6 +1067,7 @@ $fn$;
 
 -- The timeline behind one row. Ordered oldest first, because a timeline read
 -- newest-first is a list, not a story.
+drop function if exists event_timeline(uuid, uuid);
 create or replace function event_timeline(
   p_merchant_id uuid,
   p_event_id    uuid
@@ -995,7 +1081,11 @@ create or replace function event_timeline(
   intervention text,
   rationale   text,
   guardrail   text,
-  in_window   boolean
+  in_window   boolean,
+  -- [+] admin overrides: which one this row was, so the detail panel can
+  -- render it as a distinct "admin action" card instead of a generic
+  -- automated no-channel decision.
+  admin_action text
 )
 language sql stable
 as $fn$
@@ -1013,7 +1103,8 @@ as $fn$
          case when a.sent_at is null or a.channel is null then null
               else (a.sent_at at time zone m.timezone)::time
                      between m.contact_window_start and m.contact_window_end
-         end
+         end,
+         a.decision->>'admin_action'
   from actions a
   join merchants m on m.id = a.merchant_id
   where a.merchant_id = p_merchant_id

@@ -2,14 +2,15 @@
  * The dashboard's data layer.
  *
  * Everything on the page comes from here, for one merchant and one date range.
- * The six statuses are derived in SQL (see merchant_board in schema.sql), not
- * in the UI, because the table, the tab counts, the status cards and the metric
+ * The statuses are derived in SQL (see merchant_board in schema.sql), not in
+ * the UI, because the table, the tab counts, the status cards and the metric
  * cards all have to agree about what "needs a human" means - and four copies of
  * that rule is four chances for them to drift apart.
  */
 import { db } from "./supabase";
 import { profileFor } from "./classify";
-import type { RootCause, Channel } from "./types";
+import { workflowFor, DEFAULT_WORKFLOWS, normaliseWorkflows, type WorkflowId } from "./workflows";
+import type { RootCause, Channel, EventType } from "./types";
 
 export type BoardStatus =
   | "recovered"
@@ -17,14 +18,23 @@ export type BoardStatus =
   | "escalated_voice"
   | "needs_human"
   | "stopped"
-  | "opted_out";
+  | "opted_out"
+  // [+] admin overrides: "Flag as disputed" and "Write off" each need their
+  // own status rather than folding into "stopped" - a merchant filtering the
+  // table for stopped cases should not have to also mean disputed ones, and
+  // written-off cases are excluded from the recovery rate specifically
+  // because they are not "stopped", they are a business decision.
+  | "disputed"
+  | "written_off";
 
 export const BOARD_STATUSES: BoardStatus[] = [
   "recovered",
   "chasing",
   "escalated_voice",
   "needs_human",
+  "disputed",
   "stopped",
+  "written_off",
   "opted_out",
 ];
 
@@ -40,6 +50,8 @@ export const STATUS_META: Record<
   // A different mark, not just a different colour: opted out and stopped are
   // both grey, and colour alone would make them indistinguishable.
   opted_out: { label: "Opted out", token: "stopped", icon: "⊘" },
+  disputed: { label: "Disputed", token: "disputed", icon: "◆" },
+  written_off: { label: "Written off", token: "written_off", icon: "▬" },
 };
 
 /** The windows the picker offers, in days. */
@@ -67,16 +79,19 @@ export interface BoardRow {
   last_channel: Channel | null;
   /** The event's own type - payment_failed, cart_abandoned, and so on. */
   event_type: string;
+  /**
+   * Which of the four workflows classified and handled this case. Null for
+   * the events no workflow governs - see workflowFor.
+   */
+  workflow: WorkflowId | null;
+  /** True while an admin's "Pause outreach" is in effect. */
+  paused: boolean;
+  /** Set by "Snooze until a date" - no automated contact fires before this. */
+  hold_until: string | null;
+  /** When the next automated step is due, if one is scheduled at all. */
+  next_attempt_at: string | null;
 }
 
-/**
- * How many distinct event types exist at all.
- *
- * Fixed by the `events_type_valid` check constraint in schema.sql, not
- * per-tenant data - every merchant shares the same six. "Active workflows"
- * counts how many of these six actually occurred in the window.
- */
-export const WORKFLOW_TYPE_COUNT = 6;
 
 export interface BoardMetrics {
   total_events: number;
@@ -133,9 +148,37 @@ export interface Dashboard {
   series: DayPoint[];
   channels: ChannelRecovery[];
   today: TodayStats;
+  /** Which recovery workflows this merchant currently runs. */
+  workflows_enabled: WorkflowId[];
 }
 
 /* ── loaders ─────────────────────────────────────────────────────────────── */
+
+function mapBoardRow(r: Record<string, unknown>): BoardRow {
+  const reason = String(r.reason ?? "unknown") as RootCause;
+  const eventType = String(r.event_type ?? "unknown");
+  return {
+    // Derived here rather than in SQL so the mapping lives in exactly one
+    // place - the same function the worker's gate consults before acting.
+    workflow: workflowFor(eventType as EventType, reason),
+    event_id: String(r.event_id),
+    customer_id: (r.customer_id as string) ?? null,
+    customer_name: (r.customer_name as string) ?? null,
+    amount: r.amount === null ? null : Number(r.amount),
+    reason,
+    reason_label: profileFor(reason).label,
+    status: String(r.status) as BoardStatus,
+    attempts: Number(r.attempts ?? 0),
+    max_attempts: Number(r.max_attempts ?? 3),
+    failed_on: String(r.failed_on),
+    recovered_at: (r.recovered_at as string) ?? null,
+    last_channel: (r.last_channel as Channel) ?? null,
+    event_type: eventType,
+    paused: Boolean(r.paused ?? false),
+    hold_until: (r.hold_until as string) ?? null,
+    next_attempt_at: (r.next_attempt_at as string) ?? null,
+  };
+}
 
 export async function boardRows(
   merchantId: string,
@@ -148,25 +191,28 @@ export async function boardRows(
     p_until: until,
   });
   if (error) throw new Error(`Could not load the board: ${error.message}`);
+  return ((data ?? []) as Array<Record<string, unknown>>).map(mapBoardRow);
+}
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
-    const reason = String(r.reason ?? "unknown") as RootCause;
-    return {
-      event_id: String(r.event_id),
-      customer_id: (r.customer_id as string) ?? null,
-      customer_name: (r.customer_name as string) ?? null,
-      amount: r.amount === null ? null : Number(r.amount),
-      reason,
-      reason_label: profileFor(reason).label,
-      status: String(r.status) as BoardStatus,
-      attempts: Number(r.attempts ?? 0),
-      max_attempts: Number(r.max_attempts ?? 3),
-      failed_on: String(r.failed_on),
-      recovered_at: (r.recovered_at as string) ?? null,
-      last_channel: (r.last_channel as Channel) ?? null,
-      event_type: String(r.event_type ?? "unknown"),
-    };
+/**
+ * One row, by event id, regardless of when it happened.
+ *
+ * Used to re-derive a case's current status before and after an admin
+ * override - the same SQL the board itself uses, so validating an action
+ * against "what status is this actually in" can never drift from what the
+ * table is showing.
+ */
+export async function boardRowForEvent(
+  merchantId: string,
+  eventId: string,
+): Promise<BoardRow | null> {
+  const { data, error } = await db().rpc("merchant_board", {
+    p_merchant_id: merchantId,
+    p_event_id: eventId,
   });
+  if (error) throw new Error(`Could not load that case: ${error.message}`);
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  return rows.length > 0 ? mapBoardRow(rows[0]) : null;
 }
 
 export async function boardMetrics(
@@ -259,6 +305,28 @@ export async function channelRecovery(
   });
 }
 
+/**
+ * Just the merchant's enabled workflows.
+ *
+ * A narrow select rather than `getMerchant`, deliberately: this module is
+ * imported by the dashboard's client component for its types and constants,
+ * and pulling in the merchants module would drag credential decryption into
+ * that import graph for the sake of one text[] column.
+ */
+export async function enabledWorkflows(merchantId: string): Promise<WorkflowId[]> {
+  const { data, error } = await db()
+    .from("merchants")
+    .select("workflows_enabled")
+    .eq("id", merchantId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load the workflows: ${error.message}`);
+
+  const stored = normaliseWorkflows((data as { workflows_enabled?: unknown } | null)?.workflows_enabled);
+  // A row written before the column existed reads back empty; all four is
+  // what that merchant was effectively running.
+  return stored.length > 0 ? stored : DEFAULT_WORKFLOWS;
+}
+
 export async function todayStats(merchantId: string): Promise<TodayStats> {
   const { data, error } = await db().rpc("merchant_today", {
     p_merchant_id: merchantId,
@@ -292,14 +360,16 @@ export async function loadDashboard(
   const from = new Date(now - days * 86_400_000).toISOString();
   const prevFrom = new Date(now - 2 * days * 86_400_000).toISOString();
 
-  const [rows, metrics, previous, series, channels, today] = await Promise.all([
-    boardRows(merchantId, from),
-    boardMetrics(merchantId, from),
-    boardMetrics(merchantId, prevFrom, from),
-    boardSeries(merchantId, from),
-    channelRecovery(merchantId, from),
-    todayStats(merchantId),
-  ]);
+  const [rows, metrics, previous, series, channels, today, workflows] =
+    await Promise.all([
+      boardRows(merchantId, from),
+      boardMetrics(merchantId, from),
+      boardMetrics(merchantId, prevFrom, from),
+      boardSeries(merchantId, from),
+      channelRecovery(merchantId, from),
+      todayStats(merchantId),
+      enabledWorkflows(merchantId),
+    ]);
 
   return {
     days,
@@ -311,8 +381,21 @@ export async function loadDashboard(
     series,
     channels,
     today,
+    workflows_enabled: workflows,
   };
 }
+
+/**
+ * Marks who said what inside a WhatsApp action row, which otherwise holds
+ * outbound copy, inbound replies and the agent's own summaries in one column.
+ *
+ * Defined here rather than in the conversational agent so the dashboard (a
+ * client component) can read them back without pulling in the agent's model
+ * providers - the agent re-exports these rather than redefining them.
+ */
+export const INBOUND_PREFIX = "[inbound] ";
+export const REPLY_PREFIX = "[reply] ";
+export const SUMMARY_PREFIX = "[conversation] ";
 
 /* ── the timeline behind one row ─────────────────────────────────────────── */
 
@@ -328,6 +411,8 @@ export interface TimelineEntry {
   guardrail: string | null;
   /** Null for anything never sent - neither compliant nor non-compliant. */
   in_window: boolean | null;
+  /** Which admin override this was, if a merchant made this happen by hand. */
+  admin_action: string | null;
 }
 
 export async function eventTimeline(
@@ -352,6 +437,7 @@ export async function eventTimeline(
     guardrail: (r.guardrail as string) ?? null,
     in_window:
       r.in_window === null || r.in_window === undefined ? null : Boolean(r.in_window),
+    admin_action: (r.admin_action as string) ?? null,
   }));
 }
 

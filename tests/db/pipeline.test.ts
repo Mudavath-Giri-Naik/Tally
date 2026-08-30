@@ -538,6 +538,95 @@ describe("stopping rules", () => {
   });
 });
 
+describe("workflows the merchant has switched off", () => {
+  test("classifies the event but contacts nobody", async () => {
+    // The whole point of gating after classification rather than before it:
+    // a merchant who is not chasing abandoned checkouts should still be able
+    // to see how many they had.
+    const retailer = await newMerchant("NoCheckoutChasing", {
+      workflows_enabled: ["failed_payment"],
+    });
+    const event = await addEvent({
+      merchantId: retailer,
+      type: "cart_abandoned",
+      reason: "customer_abandoned",
+    });
+
+    const report = await tick();
+    assert.equal(report.claimed, 1, "the event is still claimed and looked at");
+    assert.equal(sent.length, 0, "nothing may be sent for a disabled workflow");
+
+    const row = await eventRow(event.id);
+    assert.equal(row.status, "stopped");
+    assert.equal(row.stop_reason, "workflow_disabled");
+    // Classification still happened and is still on the row.
+    assert.equal(row.reason, "customer_abandoned");
+
+    const audit = await auditFor(event.id);
+    assert.equal(audit.length, 1, "the skip is itself an audit row");
+    assert.equal(audit[0].outcome, "skipped");
+    assert.equal(audit[0].decision?.guardrail, "workflow_disabled");
+    assert.equal(audit[0].channel, null);
+  });
+
+  test("an enabled workflow on the same merchant still runs", async () => {
+    const retailer = await newMerchant("OnlyFailedPayments", {
+      workflows_enabled: ["failed_payment"],
+    });
+    const event = await addEvent({
+      merchantId: retailer,
+      type: "payment_failed",
+      reason: "otp_failed",
+    });
+
+    await tick();
+    assert.equal(sent.length, 1, "the enabled category is untouched by the gate");
+    const audit = await auditFor(event.id);
+    assert.equal(audit[0].outcome, "sent");
+  });
+
+  test("a promise to pay is honoured even with every workflow off", async () => {
+    // A promise the customer made in conversation is not a category the
+    // merchant opted into - dropping it would break a commitment they saw us
+    // accept.
+    const quiet = await newMerchant("NothingEnabled", {
+      workflows_enabled: ["checkout_abandonment"],
+    });
+    const event = await addEvent({
+      merchantId: quiet,
+      type: "promise_to_pay",
+      reason: "invoice_unpaid",
+    });
+
+    await tick();
+    assert.equal(sent.length, 1, "a promise-to-pay follow-up must still go out");
+    const audit = await auditFor(event.id);
+    assert.equal(audit[0].outcome, "sent");
+  });
+
+  test("a revoked mandate is auto-pay, not a failed payment", async () => {
+    // Razorpay reports it as payment.failed, so a merchant running only
+    // failed-payment recovery would otherwise be chased about their
+    // subscription churn - and one running only subscriptions would miss it.
+    const subs = await newMerchant("SubsOnly", {
+      workflows_enabled: ["subscription_autopay"],
+    });
+    const event = await addEvent({
+      merchantId: subs,
+      type: "payment_failed",
+      reason: "mandate_revoked",
+    });
+
+    await tick();
+    const row = await eventRow(event.id);
+    assert.notEqual(
+      row.stop_reason,
+      "workflow_disabled",
+      "a mandate failure belongs to the subscription workflow",
+    );
+  });
+});
+
 describe("the contact window", () => {
   test("defers a message that would land outside the merchant's hours", async () => {
     // A one-minute window that has certainly closed by now.

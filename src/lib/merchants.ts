@@ -20,6 +20,7 @@ import {
   generateWebhookSecret,
   maskCredential,
 } from "./crypto";
+import { DEFAULT_WORKFLOWS, normaliseWorkflows, type WorkflowId } from "./workflows";
 import type { Merchant, Channel } from "./types";
 
 /** What a merchant record looks like to everything outside this module. */
@@ -35,6 +36,7 @@ export interface PublicMerchant {
   timezone: string;
   max_attempts: number;
   channels_enabled: Channel[];
+  workflows_enabled: WorkflowId[];
   active: boolean;
   created_at: string;
   webhook_url: string;
@@ -52,6 +54,7 @@ export interface OnboardingInput {
   timezone?: string;
   max_attempts?: number;
   channels_enabled?: Channel[];
+  workflows_enabled?: WorkflowId[];
 }
 
 export class ValidationError extends Error {
@@ -123,6 +126,12 @@ function validate(input: OnboardingInput): void {
       "Enable at least one channel, or Tally has no way to reach anyone.",
     );
   }
+  if (input.workflows_enabled && input.workflows_enabled.length === 0) {
+    throw new ValidationError(
+      "workflows_enabled",
+      "Enable at least one workflow, or Tally has nothing to recover.",
+    );
+  }
 }
 
 export function toPublic(m: Merchant, baseUrl: string): PublicMerchant {
@@ -146,6 +155,10 @@ export function toPublic(m: Merchant, baseUrl: string): PublicMerchant {
     timezone: m.timezone,
     max_attempts: m.max_attempts,
     channels_enabled: m.channels_enabled,
+    // A row written before workflows existed reads back as null until the
+    // migration's default lands, so fall back rather than render "none on".
+    workflows_enabled:
+      m.workflows_enabled?.length ? m.workflows_enabled : DEFAULT_WORKFLOWS,
     active: m.active,
     created_at: m.created_at,
     webhook_url: `${baseUrl}/api/webhooks/razorpay/${m.id}`,
@@ -186,6 +199,9 @@ export async function createMerchant(
     timezone: input.timezone ?? "Asia/Kolkata",
     max_attempts: input.max_attempts ?? 3,
     channels_enabled: input.channels_enabled ?? ["email", "whatsapp"],
+    workflows_enabled: input.workflows_enabled?.length
+      ? normaliseWorkflows(input.workflows_enabled)
+      : DEFAULT_WORKFLOWS,
   };
 
   const { data, error } = await db()
@@ -291,6 +307,7 @@ export async function updateMerchantSettings(
       | "timezone"
       | "max_attempts"
       | "channels_enabled"
+      | "workflows_enabled"
       | "active"
     >
   >,

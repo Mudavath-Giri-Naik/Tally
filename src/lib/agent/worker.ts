@@ -29,6 +29,7 @@ import {
 import { menuBlock } from "../menu";
 import { createRetryLink, retryLinkReference } from "../razorpay";
 import { profileFor } from "../classify";
+import { workflowFor, workflowEnabled, WORKFLOWS } from "../workflows";
 import { decide } from "./decide";
 import { preflight, type DecisionContext } from "./rules";
 import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
@@ -230,6 +231,44 @@ async function processEvent(
       });
       if (stop.intervention === "escalate_human") report.escalated++;
       else report.stopped++;
+      return;
+    }
+
+    // ── is this kind of recovery one the merchant runs at all? ──
+    //
+    // Deliberately after classification, not before it: detection and
+    // root-cause classification run for every event whatever the settings
+    // say, so a merchant who has a category switched off can still see what
+    // they are choosing not to chase. The gate is only on acting.
+    const workflow = workflowFor(event.type, event.reason);
+    if (!workflowEnabled(merchant.workflows_enabled ?? [], workflow)) {
+      const label = workflow ? WORKFLOWS[workflow].label : "This workflow";
+      await recordAction({
+        eventId: event.id,
+        merchantId: merchant.id,
+        channel: null,
+        message: null,
+        outcome: "skipped",
+        decision: {
+          root_cause: event.reason ?? "unknown",
+          intervention: "stop",
+          channel: null,
+          rationale:
+            `Skipped - ${label} is switched off for this business, so nothing ` +
+            `was sent. The failure is still recorded and classified.`,
+          source: "guardrail",
+          guardrail: "workflow_disabled",
+        },
+      });
+      // Stopped rather than left queued: a queued event would be re-claimed
+      // and re-skipped every tick, writing the same audit row forever. Turning
+      // the workflow back on does not resurrect it - that is what "changes
+      // apply going forward" means - but Reopen case still can, by hand.
+      await updateEvent(event.id, {
+        status: "stopped",
+        stop_reason: "workflow_disabled",
+      });
+      report.stopped++;
       return;
     }
 
