@@ -52,11 +52,14 @@ export function HeroReveal() {
             className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl border-[8px] border-white/80 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl sm:border-[12px] transition-transform duration-500 ease-out"
             style={{
               // Always fully opaque - being hidden is the hills' job, done by
-              // sitting on top of it, not by fading the image itself. Only
-              // position and scale animate, so anything peeking out from
-              // behind the hills at any point in the scroll reads crisp.
-              transform: `translateY(-100px) scale(${0.60 + progress * 0.40})`,
-              transformOrigin: "top center",
+              // sitting on top of it, not by fading the image itself.
+              //
+              // No vertical translation at all: the dashboard stays exactly
+              // where it sits and only grows, centre-anchored, from small to
+              // its actual size - reading as it approaching the viewer, not
+              // sliding upward past the hills.
+              transform: `scale(${0.6 + progress * 0.4})`,
+              transformOrigin: "center",
             }}
           />
         </div>

@@ -70,18 +70,18 @@ export default function HomePage() {
 
         <div className="relative">
           {/* ── navbar ── */}
-          <header className="mx-auto flex justify-center px-4 pt-6 sm:px-6">
-            <div className="flex w-full max-w-[900px] items-center justify-between gap-8 rounded-[1.5rem] border-[6px] border-white/50 bg-white px-3 py-2.5 shadow-sm backdrop-blur sm:px-4">
-              <Link href="/" className="flex shrink-0 items-center gap-2.5">
-                <span className="flex size-9 items-center justify-center rounded-[0.4rem] bg-[#1a1a1a] text-white">
-                  <ShieldCheckIcon className="size-5" strokeWidth={2.5} />
+          <header className="mx-auto flex justify-center px-4 pt-5 sm:px-6">
+            <div className="flex w-full max-w-[760px] items-center justify-between gap-6 rounded-2xl border-[3px] border-white/50 bg-white px-2.5 py-1.5 shadow-sm backdrop-blur sm:px-3">
+              <Link href="/" className="flex shrink-0 items-center gap-2">
+                <span className="flex size-7 items-center justify-center rounded-[0.35rem] bg-[#1a1a1a] text-white">
+                  <ShieldCheckIcon className="size-3.5" strokeWidth={2.5} />
                 </span>
-                <span className="text-[1.35rem] font-bold tracking-tight text-neutral-900">
+                <span className="text-base font-bold tracking-tight text-neutral-900">
                   Tally
                 </span>
               </Link>
 
-              <nav className="hidden items-center gap-8 text-[15px] font-semibold text-neutral-600 md:flex">
+              <nav className="hidden items-center gap-6 text-sm font-semibold text-neutral-600 md:flex">
                 <a href="#how-it-works" className="transition-colors hover:text-neutral-900">
                   How it works
                 </a>
@@ -95,11 +95,11 @@ export default function HomePage() {
 
               <Link
                 href="/onboarding"
-                className="flex shrink-0 items-center gap-3 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-1.5 pl-5 pr-1.5 text-[15px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
+                className="flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-1 pl-3.5 pr-1 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
               >
                 <span className="inline">Connect your business</span>
-                <span className="flex size-7 items-center justify-center rounded-full bg-white text-neutral-900">
-                  <ArrowRightIcon className="size-4" strokeWidth={2.5} />
+                <span className="flex size-5 items-center justify-center rounded-full bg-white text-neutral-900">
+                  <ArrowRightIcon className="size-3" strokeWidth={2.5} />
                 </span>
               </Link>
             </div>
