@@ -220,118 +220,54 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
+/**
+ * The one thing that must be handled synchronously, before the async reply
+ * path even runs: an explicit opt-out.
+ *
+ * Everything else a customer's message could mean - a promise to pay, an
+ * already-paid claim, an open question - is now decided once, by
+ * `decideMove`/`performScriptedMove` inside `after()`. That used to not be
+ * true: this function also used to book its own promise-to-pay event and log
+ * its own escalation for "already paid" or an unrecognised reply, in parallel
+ * with the async path doing the same classification and acting on it too.
+ * Two systems independently deciding "this looks like a promise" produced two
+ * promise_to_pay rows for one message, one of them booked with no
+ * provider_event_id to dedupe against - which is exactly the duplicate rows
+ * and repeated confirmations this was rewritten to stop.
+ */
 async function handle(
   customer: Customer,
   intent: ReturnType<typeof classifyReply>,
   body: string,
   params: Record<string, string>,
 ): Promise<void> {
-  const messageSid = params.MessageSid ?? params.SmsMessageSid ?? null;
+  if (intent.kind !== "opt_out") return;
 
-  /** Record the inbound message against an event, so the trail has both directions. */
-  const log = async (
-    eventId: string,
-    outcome: "delivered" | "escalated" | "no_action",
-    rationale: string,
-    guardrail?: string,
-  ) => {
+  const messageSid = params.MessageSid ?? params.SmsMessageSid ?? null;
+  const stopped = await optOutCustomer(customer.id);
+  const latest = await latestEventForCustomer(customer.id);
+  if (latest) {
     await recordAction({
-      eventId,
+      eventId: latest.id,
       merchantId: customer.merchant_id,
       channel: "whatsapp",
-      // Prefixed so an inbound line is never mistaken for something Tally said.
       message: `[inbound] ${body}`,
-      outcome,
+      outcome: "no_action",
       response: messageSid,
       sentAt: new Date().toISOString(),
       decision: {
         root_cause: "unknown",
-        intervention: intent.kind === "opt_out" ? "stop" : "escalate_human",
+        intervention: "stop",
         channel: "whatsapp",
-        rationale,
-        source: "guardrail",
-        guardrail,
-      },
-    });
-  };
-
-  if (intent.kind === "opt_out") {
-    const stopped = await optOutCustomer(customer.id);
-    const latest = await latestEventForCustomer(customer.id);
-    if (latest) {
-      await log(
-        latest.id,
-        "no_action",
-        `Customer replied "${intent.matched}". Opted out and stopped ${stopped} open event(s). ` +
+        rationale:
+          `Customer replied "${intent.matched}". Opted out and stopped ${stopped} open event(s). ` +
           `They will not be contacted again on any channel.`,
-        "customer_opted_out",
-      );
-    }
-    console.info("[whatsapp-in] opt-out honoured", {
-      customer: customer.id,
-      stopped,
-    });
-    return;
-  }
-
-  if (intent.kind === "promise_to_pay") {
-    const latest = await latestEventForCustomer(customer.id);
-    // The commitment becomes its own tracked event, due on the day they named.
-    // The worker will pick it up then - not before.
-    const promise = await ingestEvent({
-      merchantId: customer.merchant_id,
-      // Ties the promise to the Twilio message, so a redelivered webhook
-      // updates nothing rather than booking the same promise twice.
-      providerEventId: messageSid ? `wa_promise_${messageSid}` : null,
-      type: "promise_to_pay",
-      reason: "invoice_unpaid",
-      amount: latest?.amount ?? null,
-      dueDate: intent.dueDate,
-      customerName: customer.name,
-      customerEmail: customer.email,
-      customerPhone: customer.phone,
-      metadata: {
-        source: "whatsapp_reply",
-        promised_on: new Date().toISOString().slice(0, 10),
-        due_date: intent.dueDate,
-        reply_text: body.slice(0, 500),
-        origin_event_id: latest?.id ?? null,
+        source: "guardrail",
+        guardrail: "customer_opted_out",
       },
     });
-
-    // Do not chase before the day they promised.
-    const { updateEvent } = await import("@/lib/events");
-    await updateEvent(promise.id, {
-      next_attempt_at: new Date(`${intent.dueDate}T09:00:00Z`).toISOString(),
-    });
-
-    await log(
-      promise.id,
-      "delivered",
-      `Customer committed to pay on ${intent.dueDate} ("${intent.matched}"). ` +
-        `Tracked as a promise-to-pay; no further chasing until then.`,
-      "promise_to_pay_recorded",
-    );
-    console.info("[whatsapp-in] promise-to-pay recorded", {
-      customer: customer.id,
-      due: intent.dueDate,
-    });
-    return;
   }
-
-  // "already paid", or anything we did not confidently understand: record it
-  // and let a person read it.
-  const latest = await latestEventForCustomer(customer.id);
-  if (latest) {
-    await log(
-      latest.id,
-      "escalated",
-      intent.kind === "already_paid"
-        ? `Customer says they have already paid. Needs a human to reconcile before any further contact.`
-        : `Customer replied but the message was not confidently understood. Left for a human.`,
-      intent.kind === "already_paid" ? "customer_claims_paid" : "reply_needs_human",
-    );
-  }
+  console.info("[whatsapp-in] opt-out honoured", { customer: customer.id, stopped });
 }
 
 /** Twilio pings the endpoint when you save it in the console. */
