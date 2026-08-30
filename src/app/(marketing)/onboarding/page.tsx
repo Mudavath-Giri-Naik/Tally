@@ -11,6 +11,8 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import { CopyField } from "@/components/copy-field";
+
 interface Success {
   merchant: {
     id: string;
@@ -111,23 +113,25 @@ export default function OnboardingPage() {
           <li>
             <h3>Add the webhook URL</h3>
             <p className="muted small">
-              Razorpay Dashboard → Settings → Webhooks → Add New Webhook.
+              Razorpay Dashboard → Settings → Webhooks → Add New Webhook. Paste
+              this into the <em>Webhook URL</em> field.
             </p>
-            <pre>
-              <code>{result.merchant.webhook_url}</code>
-            </pre>
+            <CopyField value={result.merchant.webhook_url} />
           </li>
           <li>
             <h3>Set the signing secret</h3>
             <p className="muted small">
               Paste this into the <em>Secret</em> field on the same screen.
             </p>
-            <pre>
-              <code>{result.webhook_secret}</code>
-            </pre>
+            <CopyField value={result.webhook_secret} />
           </li>
           <li>
             <h3>Subscribe to these events</h3>
+            <p className="muted small">
+              Tick these checkboxes on the same screen, then save. Recovery
+              numbers stay at zero without <code>order.paid</code> and{" "}
+              <code>subscription.charged</code> ticked.
+            </p>
             <pre>
               <code>{result.next_steps.events_to_subscribe.join("\n")}</code>
             </pre>
