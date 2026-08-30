@@ -1,27 +1,34 @@
 /**
  * The dashboard shell: identity, navigation, and the agent's own status.
  *
- * Everything inside is server-rendered. The merchant is resolved once here and
- * again in the page - Next dedupes the two within a render pass, and the
- * alternative (threading it through context) would stop each page rendering on
- * its own.
+ * Built on shadcn's sidebar primitives so the chrome matches the rest of the
+ * admin surface. Everything inside is server-rendered; the merchant is
+ * resolved here and again in the page, which Next dedupes within a render
+ * pass - the alternative would stop each page rendering on its own.
  */
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ShieldCheckIcon } from "lucide-react";
+
 import { resolveMerchant } from "@/lib/merchants";
 import { todayStats } from "@/lib/board";
+import { Providers } from "@/components/providers";
 import { DashboardNav, type NavItem } from "@/components/dashboard-nav";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ModeToggle } from "@/components/mode-toggle";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarInset,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 export const dynamic = "force-dynamic";
-
-/**
- * Applied before first paint, so a remembered dark choice never shows as a
- * flash of light first. Light is the default: no stored choice means light,
- * whatever the operating system prefers.
- */
-const THEME_BOOTSTRAP = `try{var t=localStorage.getItem("tally-theme");if(t==="dark")document.documentElement.dataset.theme="dark";}catch(e){}`;
 
 export async function generateMetadata({
   params,
@@ -52,12 +59,9 @@ export default async function DashboardLayout({
   const base = `/dashboard/${merchant.slug}`;
   const today = await todayStats(merchant.id).catch(() => null);
 
-  // One dataset, viewed several ways, is one page. Filtering by status is what
-  // a separate Events list was; the table is what a Customers list was; and
-  // the timeline behind a row is what an activity feed was.
   const items: NavItem[] = [
-    { href: base, label: "Overview", icon: "◧" },
-    { href: `${base}/settings`, label: "Settings", icon: "⚙" },
+    { href: base, label: "Overview", icon: "overview" },
+    { href: `${base}/settings`, label: "Settings", icon: "settings" },
   ];
 
   const initials = merchant.business_name
@@ -67,88 +71,100 @@ export default async function DashboardLayout({
     .join("");
 
   return (
-    <>
-      <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
-      <div className="app">
-        <aside className="app__side">
-          <Link href="/" className="brand">
-            <span className="brand__mark" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18">
-                <path
-                  d="M12 2.6 21 7.6v8.8L12 21.4 3 16.4V7.6l9-5Z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M7.6 12.4l3 3 5.8-6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-            <span className="brand__text">
-              <span className="brand__eyebrow">AI revenue</span>
-              <span className="brand__name">Tally</span>
-            </span>
-          </Link>
-
-          <DashboardNav items={items} />
-
-          <div className="app__side-foot">
-            {/* ── the agent's own status, from real counts ── */}
-            <div className="agentcard">
-              <div className="agentcard__head">
-                <span className="agentcard__title">Agent status</span>
-                <span
-                  className={`agentcard__state${merchant.active ? "" : " is-paused"}`}
-                >
-                  <i aria-hidden="true" />
-                  {merchant.active ? "Live" : "Paused"}
+    <Providers>
+      <div className="flex h-full w-full min-w-0">
+        <Sidebar collapsible="icon">
+          <SidebarHeader>
+            <Link
+              href="/"
+              className="flex items-center gap-2.5 px-2 py-1.5 group-data-[collapsible=icon]:px-0"
+            >
+              <span className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
+                <ShieldCheckIcon className="size-4" />
+              </span>
+              <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="text-muted-foreground text-[0.65rem] font-semibold tracking-widest uppercase">
+                  AI revenue
                 </span>
+                <span className="text-base font-bold tracking-tight">Tally</span>
+              </span>
+            </Link>
+          </SidebarHeader>
+
+          <SidebarContent>
+            <DashboardNav items={items} />
+          </SidebarContent>
+
+          <SidebarFooter className="gap-3">
+            {/* The agent's own status, from real counts. Hidden when the rail
+                is collapsed, where there is no room to read it. */}
+            <div className="bg-sidebar-accent/60 rounded-lg border p-3 group-data-[collapsible=icon]:hidden">
+              <div className="mb-2.5 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">Agent status</span>
+                <Badge
+                  variant={merchant.active ? "default" : "secondary"}
+                  className="h-5 px-2 text-[0.65rem]"
+                >
+                  {merchant.active ? "Live" : "Paused"}
+                </Badge>
               </div>
-              <dl className="agentcard__rows">
-                <div>
-                  <dt>Interventions today</dt>
-                  <dd>{today?.interventions_today ?? 0}</dd>
+              <dl className="space-y-1.5 text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-muted-foreground">Interventions today</dt>
+                  <dd className="font-semibold tabular-nums">
+                    {today?.interventions_today ?? 0}
+                  </dd>
                 </div>
-                <div>
-                  <dt>Recovery rate today</dt>
-                  <dd>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-muted-foreground">Recovery rate today</dt>
+                  <dd className="font-semibold tabular-nums">
                     {today?.recovery_rate_today === null ||
                     today?.recovery_rate_today === undefined
                       ? "—"
                       : `${today.recovery_rate_today}%`}
                   </dd>
                 </div>
-                <div>
-                  <dt>Events today</dt>
-                  <dd>{today?.events_today ?? 0}</dd>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-muted-foreground">Events today</dt>
+                  <dd className="font-semibold tabular-nums">
+                    {today?.events_today ?? 0}
+                  </dd>
                 </div>
               </dl>
             </div>
 
-            <div className="userchip">
-              <span className="userchip__avatar" aria-hidden="true">
-                {initials || "T"}
-              </span>
-              <span className="userchip__body">
-                <span className="userchip__name" title={merchant.business_name}>
+            <div className="flex items-center gap-2">
+              <Avatar className="size-8">
+                <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
+                  {initials || "T"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex min-w-0 flex-1 flex-col leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-sm font-semibold">
                   {merchant.business_name}
                 </span>
-                <span className="userchip__role">Merchant</span>
-              </span>
-              <ThemeToggle />
+                <span className="text-muted-foreground text-xs">Merchant</span>
+              </div>
+              <div className="group-data-[collapsible=icon]:hidden">
+                <ModeToggle />
+              </div>
             </div>
-          </div>
-        </aside>
+          </SidebarFooter>
+        </Sidebar>
 
-        <main className="app__main">{children}</main>
+        <SidebarInset className="flex flex-1 flex-col">
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 sm:px-6">
+            <SidebarTrigger className="-ml-1" />
+            <Separator orientation="vertical" className="mr-1 h-4" />
+            <span className="text-muted-foreground text-sm">
+              {merchant.business_name}
+            </span>
+          </header>
+          <main className="mx-auto size-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">
+            {children}
+          </main>
+        </SidebarInset>
       </div>
-    </>
+    </Providers>
   );
 }

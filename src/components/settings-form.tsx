@@ -4,12 +4,19 @@
  * The settings form.
  *
  * Saves through PATCH /api/merchants/:id and then refreshes the server
- * components on the page, so the sidebar's "Agent live / paused" badge and
- * the header both reflect the change without a full reload.
+ * components on the page, so the sidebar's live/paused badge reflects the
+ * change without a full reload.
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+
 import type { Channel } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const CHANNELS: Array<{ id: Channel; label: string; note: string }> = [
   { id: "email", label: "Email", note: "Cheapest, and always available." },
@@ -49,15 +56,6 @@ export function SettingsForm({
     setSaved(false);
   }
 
-  function toggleChannel(id: Channel) {
-    set(
-      "channels_enabled",
-      form.channels_enabled.includes(id)
-        ? form.channels_enabled.filter((c) => c !== id)
-        : [...form.channels_enabled, id],
-    );
-  }
-
   async function save(next: Partial<SettingsValues> = {}) {
     setBusy(true);
     setError(null);
@@ -86,104 +84,84 @@ export function SettingsForm({
   }
 
   return (
-    <>
-      <div className="panel">
-        <div className="panel__head">
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Agent status</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Pausing stops all outbound messages immediately. Events keep arriving
+            and queueing, so nothing is lost while you are paused.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2>Agent status</h2>
-            <p className="panel__hint">
-              Pausing stops all outbound messages immediately. Events keep
-              arriving and queueing, so nothing is lost while you are paused.
+            <Badge variant={form.active ? "default" : "secondary"}>
+              {form.active ? "Live" : "Paused"}
+            </Badge>
+            <p className="text-muted-foreground mt-2 text-sm">
+              {form.active
+                ? "Tally is contacting customers within your window."
+                : "Tally is queueing events but not contacting anyone."}
             </p>
           </div>
-        </div>
-        <div className="panel__body">
-          <div className="toggle-row">
-            <div>
-              <div className="toggle-row__state">
-                <span
-                  className={`pill ${form.active ? "pill--good" : "pill--warn"}`}
-                >
-                  {form.active ? "Live" : "Paused"}
-                </span>
-              </div>
-              <p className="muted small" style={{ marginTop: 8, marginBottom: 0 }}>
-                {form.active
-                  ? "Tally is contacting customers within your window."
-                  : "Tally is queueing events but not contacting anyone."}
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`btn${form.active ? " btn--ghost" : ""}`}
-              disabled={busy}
-              onClick={() => {
-                set("active", !form.active);
-                void save({ active: !form.active });
-              }}
-            >
-              {form.active ? "Pause agent" : "Resume agent"}
-            </button>
-          </div>
-        </div>
-      </div>
+          <Button
+            variant={form.active ? "outline" : "default"}
+            disabled={busy}
+            onClick={() => {
+              set("active", !form.active);
+              void save({ active: !form.active });
+            }}
+          >
+            {form.active ? "Pause agent" : "Resume agent"}
+          </Button>
+        </CardContent>
+      </Card>
 
-      <div className="panel">
-        <div className="panel__head">
-          <div>
-            <h2>Contact rules</h2>
-            <p className="panel__hint">
-              Tally never contacts anyone outside this window. A message that
-              would land outside it waits until the window opens.
-            </p>
-          </div>
-        </div>
-        <div className="panel__body">
-          <div className="field-row">
-            <div className="field">
-              <label className="field__label" htmlFor="ws">
-                Contact from
-              </label>
-              <input
+      <Card>
+        <CardHeader>
+          <CardTitle>Contact rules</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Tally never contacts anyone outside this window. A message that would
+            land outside it waits until the window opens.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2">
+              <Label htmlFor="ws">Contact from</Label>
+              <Input
                 id="ws"
                 type="time"
                 value={form.contact_window_start.slice(0, 5)}
                 onChange={(e) => set("contact_window_start", e.target.value)}
               />
             </div>
-            <div className="field">
-              <label className="field__label" htmlFor="we">
-                Contact until
-              </label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="we">Contact until</Label>
+              <Input
                 id="we"
                 type="time"
                 value={form.contact_window_end.slice(0, 5)}
                 onChange={(e) => set("contact_window_end", e.target.value)}
               />
               {errorField === "contact_window_end" && (
-                <div className="field__error">{error}</div>
+                <p className="text-destructive text-sm">{error}</p>
               )}
             </div>
-            <div className="field">
-              <label className="field__label" htmlFor="tz">
-                Time zone
-              </label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="tz">Time zone</Label>
+              <Input
                 id="tz"
-                type="text"
                 value={form.timezone}
                 onChange={(e) => set("timezone", e.target.value)}
               />
               {errorField === "timezone" && (
-                <div className="field__error">{error}</div>
+                <p className="text-destructive text-sm">{error}</p>
               )}
             </div>
-            <div className="field">
-              <label className="field__label" htmlFor="ma">
-                Max attempts
-              </label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="ma">Max attempts</Label>
+              <Input
                 id="ma"
                 type="number"
                 min={1}
@@ -192,56 +170,68 @@ export function SettingsForm({
                 onChange={(e) => set("max_attempts", Number(e.target.value))}
               />
               {errorField === "max_attempts" && (
-                <div className="field__error">{error}</div>
+                <p className="text-destructive text-sm">{error}</p>
               )}
             </div>
           </div>
 
-          <div className="field" style={{ marginBottom: 0 }}>
-            <span className="field__label">Channels</span>
-            <div className="field__hint">
-              The agent picks between the ones you allow, based on the amount
-              and what has already been tried.
-            </div>
-            <div className="checkbox-row">
+          <div className="space-y-3">
+            <Label>Channels</Label>
+            <p className="text-muted-foreground -mt-1 text-sm">
+              The agent picks between the ones you allow, based on the amount and
+              what has already been tried.
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-6">
               {CHANNELS.map((c) => (
-                <label key={c.id} className="checkbox">
-                  <input
-                    type="checkbox"
+                <label key={c.id} className="flex items-center gap-2.5 text-sm">
+                  <Checkbox
                     checked={form.channels_enabled.includes(c.id)}
-                    onChange={() => toggleChannel(c.id)}
+                    onCheckedChange={() =>
+                      set(
+                        "channels_enabled",
+                        form.channels_enabled.includes(c.id)
+                          ? form.channels_enabled.filter((x) => x !== c.id)
+                          : [...form.channels_enabled, c.id],
+                      )
+                    }
                   />
                   <span>
-                    {c.label} <span className="muted small">— {c.note}</span>
+                    {c.label}{" "}
+                    <span className="text-muted-foreground">
+                      &mdash; {c.note}
+                    </span>
                   </span>
                 </label>
               ))}
             </div>
             {errorField === "channels_enabled" && (
-              <div className="field__error">{error}</div>
+              <p className="text-destructive text-sm">{error}</p>
             )}
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {error && !errorField && (
-        <div className="callout callout--warn">{error}</div>
+        <p className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-4 py-3 text-sm">
+          {error}
+        </p>
       )}
 
-      <div className="savebar">
-        <button
-          className="btn"
-          type="button"
-          disabled={busy || !dirty}
-          onClick={() => void save()}
-        >
+      <div className="flex items-center gap-4">
+        <Button disabled={busy || !dirty} onClick={() => void save()}>
           {busy ? "Saving…" : "Save changes"}
-        </button>
-        {saved && !dirty && <span className="savebar__ok">Saved</span>}
+        </Button>
+        {saved && !dirty && (
+          <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+            Saved
+          </span>
+        )}
         {dirty && !busy && (
-          <span className="muted small">You have unsaved changes.</span>
+          <span className="text-muted-foreground text-sm">
+            You have unsaved changes.
+          </span>
         )}
       </div>
-    </>
+    </div>
   );
 }
