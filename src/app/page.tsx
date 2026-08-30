@@ -8,8 +8,6 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { HeroReveal } from "@/components/hero-reveal";
-
 const FAILURE_CARDS = [
   {
     t: "Insufficient funds",
@@ -109,64 +107,66 @@ export default function HomePage() {
           </header>
 
           {/* ── headline ── */}
-          {/* Bottom padding has to clear the space the dashboard's raised
-              resting position (top:-26% in HeroReveal) reaches up into - that
-              offset is a percentage of a box whose height scales with viewport
-              width, so wider screens need more clearance here, not less. */}
-          <div className="mx-auto max-w-5xl px-4 pb-32 pt-16 text-center sm:px-6 sm:pt-24 sm:pb-80">
-            <h1 className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[2.6rem] leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-6xl md:text-7xl lg:text-[5.5rem]">
+          <div className="mx-auto max-w-4xl px-4 pt-10 pb-6 text-center sm:px-6 sm:pt-14 sm:pb-8">
+            <h1 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-3xl leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-5xl md:text-6xl">
               Revenue
-              <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-[1.5rem] bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-2xl shadow-slate-900/30 sm:size-16 md:size-[4.5rem] lg:size-[5rem] -rotate-6 border-t border-slate-500">
-                <span className="absolute top-2 left-3"><Sparkles className="size-3 sm:size-4 md:size-5 text-white/80" fill="currentColor" /></span>
-                <span className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-200 tracking-tighter">AI</span>
+              <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-xl shadow-slate-900/30 sm:size-11 md:size-12 -rotate-6 border-t border-slate-500">
+                <span className="absolute top-1 left-2"><Sparkles className="size-2 sm:size-3 text-white/80" fill="currentColor" /></span>
+                <span className="text-lg sm:text-xl md:text-2xl font-bold text-slate-200 tracking-tighter">AI</span>
               </span>
               Recovery
             </h1>
-            <p className="mx-auto mt-6 max-w-xl text-base text-neutral-600 sm:text-lg">
+            <p className="mx-auto mt-4 max-w-lg text-sm text-neutral-600 sm:text-base">
               AI that finds out why a payment failed — and gets it back for you, automatically.
             </p>
 
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-5 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
               <div className="rounded-full bg-[#4A85F6]/20 p-1">
                 <Link
                   href="/onboarding"
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[#4A85F6] px-6 py-3 text-base font-semibold text-white shadow-md transition hover:bg-[#366AE6] sm:w-auto border border-[#76A1F9]"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[#4A85F6] px-5 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-[#366AE6] sm:w-auto border border-[#76A1F9]"
                 >
                   Connect your business
-                  <span className="flex size-6 items-center justify-center rounded-full bg-white text-[#4A85F6]">
-                    <ArrowRightIcon className="size-3.5" strokeWidth={3} />
+                  <span className="flex size-5 items-center justify-center rounded-full bg-white text-[#4A85F6]">
+                    <ArrowRightIcon className="size-3" strokeWidth={3} />
                   </span>
                 </Link>
               </div>
               <Link
                 href="/dashboard/mandate-2"
-                className="w-full rounded-full border border-transparent bg-white px-8 py-4 text-center text-base font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 sm:w-auto"
+                className="w-full rounded-full border border-transparent bg-white px-6 py-2.5 text-center text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 sm:w-auto"
               >
                 View demo
               </Link>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-neutral-600 font-medium">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-neutral-600 font-medium">
               <span className="flex items-center gap-1.5">
-                <StarIcon className="size-4 text-amber-500" fill="currentColor" />
+                <StarIcon className="size-3.5 text-amber-500" fill="currentColor" />
                 Guardrail-checked every send
               </span>
               <span className="hidden text-neutral-300 sm:inline">|</span>
               <span className="flex items-center gap-1.5">
-                <LockIcon className="size-4 text-emerald-500" />
+                <LockIcon className="size-3.5 text-emerald-500" />
                 AES-256 encrypted keys
               </span>
               <span className="hidden text-neutral-300 sm:inline">|</span>
               <span className="flex items-center gap-1.5">
-                <ZapIcon className="size-4 text-red-500" fill="currentColor" />
+                <ZapIcon className="size-3.5 text-red-500" fill="currentColor" />
                 Live within five minutes
               </span>
             </div>
           </div>
 
-          {/* ── hills + dashboard, scroll reveal ── */}
-          <HeroReveal />
-          <div className="h-16 sm:h-24" />
+          {/* ── dashboard: a plain static image, no scroll animation ── */}
+          <div className="mx-auto max-w-5xl px-4 pb-14 sm:px-6 sm:pb-20">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/dashboard.png"
+              alt="Tally's live recovery dashboard"
+              className="w-full rounded-xl border-[8px] border-white/80 shadow-2xl sm:rounded-2xl sm:border-[12px]"
+            />
+          </div>
         </div>
       </div>
 
