@@ -3,10 +3,12 @@
 /**
  * The hills-and-dashboard scroll reveal.
  *
- * The dashboard screenshot sits tucked behind the hills at rest; scrolling it
- * into view lifts the hills slightly and brings the dashboard up and into
- * focus underneath them - a curtain opening, not a fade. Plain scroll math
- * rather than a library: one listener, one number, two transforms.
+ * At rest the hills sit high enough to genuinely cover the dashboard - this
+ * is meant to hide it, not just tint it - and scrolling drives two things at
+ * once: the dashboard rises into full focus while the hills travel down past
+ * their own height and off the bottom of the section entirely, so they are
+ * gone rather than merely "lower". Plain scroll math, no library: one
+ * listener, one 0-1 number, two transforms.
  */
 import { useEffect, useRef, useState } from "react";
 
@@ -47,8 +49,11 @@ export function HeroReveal() {
             alt="Tally's live recovery dashboard"
             className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl ring-1 ring-black/10 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl"
             style={{
-              transform: `translateY(${(1 - progress) * 34}px) scale(${0.95 + progress * 0.05})`,
-              opacity: 0.55 + progress * 0.45,
+              // Genuinely hidden at rest - low opacity, pulled down and
+              // shrunk - because the hills are meant to cover it, not sit
+              // beside a dashboard that is already half-visible underneath.
+              transform: `translateY(${(1 - progress) * 56}px) scale(${0.92 + progress * 0.08})`,
+              opacity: 0.2 + progress * 0.8,
               transition: "opacity 60ms linear",
             }}
           />
@@ -61,7 +66,13 @@ export function HeroReveal() {
           className="pointer-events-none absolute inset-x-0 bottom-0 w-screen max-w-none select-none"
           style={{
             left: "50%",
-            transform: `translateX(-50%) translateY(${progress * 46}px)`,
+            // translateY is a percentage of the image's OWN rendered height,
+            // not the container's. -38% at rest lifts it well above its
+            // natural bottom-anchored position so it actually overlaps the
+            // dashboard; +115% at full scroll pushes it a full height plus a
+            // margin past where it started, clearing the section completely
+            // rather than merely sliding to a lower resting spot.
+            transform: `translateX(-50%) translateY(${-38 + progress * 153}%)`,
           }}
         />
       </div>
