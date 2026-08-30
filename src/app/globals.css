@@ -1564,6 +1564,30 @@ table.board td { vertical-align: middle; }
 
 .money { font-weight: 600; }
 
+/* ── channel mark ───────────────────────────────────────────────────────── */
+.chan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 550;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.chan svg { flex: none; display: block; }
+/* Each channel keeps its own hue so a column of them reads as a pattern -
+   which is the point: "WhatsApp works here, email does not" should be
+   visible without reading a single label. */
+.chan--whatsapp { color: var(--st-recovered); }
+.chan--email    { color: var(--st-voice); }
+.chan--voice    { color: var(--st-chasing); }
+.chan--none     { color: var(--text-3); font-weight: 400; }
+
+@media (max-width: 900px) {
+  /* The mark alone still carries it once space is tight. */
+  .chan__label { display: none; }
+}
+
 .badge {
   display: inline-block;
   font-size: 0.76rem;

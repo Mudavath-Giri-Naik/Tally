@@ -47,6 +47,54 @@ function shortTime(iso: string): string {
   });
 }
 
+/**
+ * Channel marks.
+ *
+ * Inline SVG rather than emoji or an icon font: these sit inside a table at
+ * 13px, they have to take the row's colour in both themes, and an emoji would
+ * render as a different picture on every platform.
+ */
+function ChannelMark({ channel }: { channel: string | null }) {
+  if (!channel) {
+    return (
+      <span className="chan chan--none" title="Nothing has reached them yet">
+        —
+      </span>
+    );
+  }
+
+  const label =
+    channel === "whatsapp" ? "WhatsApp" : channel === "voice" ? "Call" : "Email";
+
+  return (
+    <span className={`chan chan--${channel}`} title={`Last reached by ${label}`}>
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+        {channel === "email" && (
+          <>
+            <rect x="1.2" y="3.2" width="13.6" height="9.6" rx="1.6"
+                  fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M1.8 4.4 8 8.9l6.2-4.5" fill="none"
+                  stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </>
+        )}
+        {channel === "whatsapp" && (
+          <path
+            d="M8 1.6a6.4 6.4 0 0 0-5.5 9.65L1.7 14.4l3.25-.8A6.4 6.4 0 1 0 8 1.6Z"
+            fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"
+          />
+        )}
+        {channel === "voice" && (
+          <path
+            d="M4.1 2.2c.7 0 1 .4 1.3 1l.6 1.5c.2.5.1.8-.3 1.15l-.7.6a7.4 7.4 0 0 0 3.6 3.6l.6-.7c.35-.4.65-.5 1.15-.3l1.5.6c.6.25 1 .6 1 1.3 0 1.4-1.2 2.4-2.5 2.2C6.4 12.6 3.4 9.6 2 5.2 1.7 3.7 2.7 2.2 4.1 2.2Z"
+            fill="currentColor"
+          />
+        )}
+      </svg>
+      <span className="chan__label">{label}</span>
+    </span>
+  );
+}
+
 function StatusPill({ status }: { status: BoardStatus }) {
   const meta = STATUS_META[status];
   return (
@@ -293,6 +341,7 @@ export function LiveBoard({
                 <th className="num">Amount</th>
                 <th>Reason</th>
                 <th>Status</th>
+                <th>Channel</th>
                 <th className="num">Attempts</th>
                 <th>Failed on</th>
               </tr>
@@ -362,6 +411,9 @@ function BoardRowView({
       <td>
         <StatusPill status={row.status} />
       </td>
+      <td>
+        <ChannelMark channel={row.last_channel} />
+      </td>
       <td className="num">
         <span
           className={`attempts${row.attempts >= row.max_attempts ? " is-spent" : ""}`}
@@ -405,6 +457,7 @@ function DetailPanel({
             <strong>{formatINR(row.amount)}</strong>
             <span className="badge">{row.reason_label}</span>
             <StatusPill status={row.status} />
+            <ChannelMark channel={row.last_channel} />
           </div>
         </div>
         <button type="button" className="detail__close" onClick={onClose} aria-label="Close">

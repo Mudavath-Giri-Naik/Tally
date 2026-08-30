@@ -690,6 +690,10 @@ $fn$;
 -- then handed to a human, then escalated to voice, then stopped for any other
 -- reason, and anything still moving is chasing.
 -- ===========================================================================
+-- Dropped rather than replaced: a column added to the result of a
+-- returns-table function is a change of return type, which create or replace
+-- refuses. The body is quoted, so nothing depends on it at creation time.
+drop function if exists merchant_board(uuid, timestamptz);
 create or replace function merchant_board(
   p_merchant_id uuid,
   p_since       timestamptz default now() - interval '90 days'
@@ -703,17 +707,31 @@ create or replace function merchant_board(
   attempts       int,
   max_attempts   int,
   failed_on      timestamptz,
-  recovered_at   timestamptz
+  recovered_at   timestamptz,
+  last_channel   text
 )
 language sql stable
 as $fn$
   with latest_channel as (
-    -- The channel of the most recent action that actually sent something.
-    -- distinct on is the cheap way to take one row per event.
+    -- The most recent action that named a channel, whatever became of it.
+    -- This drives the voice escalation status: a call was placed, and that is
+    -- an escalation whether or not it connected.
     select distinct on (a.event_id) a.event_id, a.channel
     from actions a
     where a.merchant_id = p_merchant_id
       and a.channel is not null
+    order by a.event_id, a.created_at desc
+  ),
+  reached as (
+    -- The last channel that actually landed. Deliberately narrower than the
+    -- one above: an attempt the provider rejected did not reach anybody, and
+    -- a column headed "channel" that showed it would be answering "what did
+    -- we try" while appearing to answer "what worked".
+    select distinct on (a.event_id) a.event_id, a.channel
+    from actions a
+    where a.merchant_id = p_merchant_id
+      and a.channel is not null
+      and a.outcome in ('sent', 'delivered')
     order by a.event_id, a.created_at desc
   )
   select e.id,
@@ -734,11 +752,13 @@ as $fn$
          e.attempts,
          m.max_attempts,
          e.created_at,
-         case when e.status = 'recovered' then e.updated_at end
+         case when e.status = 'recovered' then e.updated_at end,
+         rc.channel
   from events e
   join merchants m on m.id = e.merchant_id
   left join customers c on c.id = e.customer_id
   left join latest_channel lc on lc.event_id = e.id
+  left join reached rc on rc.event_id = e.id
   where e.merchant_id = p_merchant_id
     and e.created_at >= p_since
   order by e.created_at desc;

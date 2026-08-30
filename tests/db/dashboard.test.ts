@@ -552,3 +552,73 @@ describe("the recovery board", () => {
     assert.equal(rows.length, 0);
   });
 });
+
+describe("the channel that reached them", () => {
+  async function act(
+    merchantId: string,
+    eventId: string,
+    channel: string | null,
+    outcome: string,
+  ) {
+    await pool.query(
+      `insert into actions (event_id, merchant_id, channel, outcome, message, sent_at)
+       values ($1,$2,$3,$4,'m', now())`,
+      [eventId, merchantId, channel, outcome],
+    );
+    // Distinct created_at ordering, since "most recent" is the whole question.
+    await new Promise((r) => setTimeout(r, 5));
+  }
+
+  test("reports the last channel that actually landed", async () => {
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    await act(mandate, event, "email", "sent");
+    await act(mandate, event, "whatsapp", "delivered");
+
+    const { rows } = await pool.query<{ last_channel: string }>(
+      `select last_channel from merchant_board($1)`, [mandate],
+    );
+    assert.equal(rows[0].last_channel, "whatsapp");
+  });
+
+  test("ignores an attempt the provider rejected", async () => {
+    // A failed voice call reached nobody. Showing it under a column headed
+    // "channel" would answer "what did we try" while appearing to answer
+    // "what worked" - and the merchant is reading it to learn what works.
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    await act(mandate, event, "whatsapp", "delivered");
+    await act(mandate, event, "voice", "failed");
+
+    const { rows } = await pool.query<{ last_channel: string }>(
+      `select last_channel from merchant_board($1)`, [mandate],
+    );
+    assert.equal(rows[0].last_channel, "whatsapp");
+  });
+
+  test("is null when nothing has reached them yet", async () => {
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha });
+    await act(mandate, event, null, "no_action");
+    await act(mandate, event, "email", "failed");
+
+    const { rows } = await pool.query<{ last_channel: string | null }>(
+      `select last_channel from merchant_board($1)`, [mandate],
+    );
+    assert.equal(rows[0].last_channel, null);
+  });
+
+  test("a failed voice call still counts as a voice escalation", async () => {
+    // The two questions are different: the status asks what we escalated to,
+    // the channel column asks what got through.
+    const asha = await seedCustomer(mandate, { name: "Asha" });
+    const event = await seedEvent(mandate, { customerId: asha, status: "queued" });
+    await act(mandate, event, "voice", "failed");
+
+    const { rows } = await pool.query<{ status: string; last_channel: string | null }>(
+      `select status, last_channel from merchant_board($1)`, [mandate],
+    );
+    assert.equal(rows[0].status, "escalated_voice");
+    assert.equal(rows[0].last_channel, null);
+  });
+});

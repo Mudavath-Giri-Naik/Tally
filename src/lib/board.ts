@@ -8,7 +8,7 @@
  */
 import { db } from "./supabase";
 import { profileFor } from "./classify";
-import type { RootCause } from "./types";
+import type { RootCause, Channel } from "./types";
 
 export type BoardStatus =
   | "recovered"
@@ -54,6 +54,8 @@ export interface BoardRow {
   max_attempts: number;
   failed_on: string;
   recovered_at: string | null;
+  /** The last channel that actually landed, or null if nothing has yet. */
+  last_channel: Channel | null;
 }
 
 export interface BoardMetrics {
@@ -99,6 +101,7 @@ export async function boardRows(
       max_attempts: Number(r.max_attempts ?? 3),
       failed_on: String(r.failed_on),
       recovered_at: (r.recovered_at as string) ?? null,
+      last_channel: (r.last_channel as Channel) ?? null,
     };
   });
 }
