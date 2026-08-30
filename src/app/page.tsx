@@ -59,15 +59,24 @@ export default function HomePage() {
     <div className="bg-white">
       {/* ── hero: sky, navbar, headline, hills+dashboard reveal ── */}
       <div className="relative overflow-hidden bg-white">
-        {/* Background Image Layer - bg-cover so it always fully fills the
-            section with no gap of plain white beneath it, however tall the
-            section ends up being. Cover scales proportionally rather than
-            stretching each axis independently, so nothing distorts - it
-            crops rather than warps. Full opacity throughout, no fade mask. */}
+        {/* Background Image Layer.
+
+            This box's aspect-ratio is the image's own real pixel dimensions
+            (1713x918), not the section's height - that is what makes the fade
+            below actually land on the image's true bottom edge instead of
+            somewhere in the empty space beneath it. With the box's ratio
+            matching the image exactly, bg-size 100% 100% fills it perfectly
+            with zero distortion and zero cropping - there is no mismatch
+            between the two shapes for either of those to correct. */}
         <div
-          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-top bg-no-repeat"
+          className="pointer-events-none absolute inset-x-0 top-0 aspect-[1713/918] w-full bg-[url('/background.png')] bg-top bg-no-repeat [background-size:100%_100%]"
           aria-hidden="true"
-        />
+        >
+          {/* Fades the image's own bottom edge into the white section below,
+              anchored to this box - which now ends exactly where the image
+              itself ends - so the seam actually disappears. */}
+          <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-white to-transparent sm:h-32" />
+        </div>
 
         <div className="relative">
           {/* ── navbar ── */}
