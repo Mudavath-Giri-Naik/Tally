@@ -64,14 +64,14 @@ export default function HomePage() {
         {/* Background Image Layer - shown at its own natural size, full
             opacity throughout, no fade mask over it. */}
         <div
-          className="pointer-events-none absolute inset-0 bg-[url('/background.avif')] bg-top bg-no-repeat"
+          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-top bg-no-repeat"
           aria-hidden="true"
         />
 
         <div className="relative">
           {/* ── navbar ── */}
           <header className="mx-auto flex justify-center px-4 pt-5 sm:px-6">
-            <div className="flex w-full max-w-[760px] items-center justify-between gap-6 rounded-2xl border-[3px] border-white/50 bg-white px-2.5 py-1.5 shadow-sm backdrop-blur sm:px-3">
+            <div className="flex w-full max-w-[760px] items-center justify-between gap-6 rounded-2xl border-[3px] border-white/50 bg-white px-2.5 py-2.5 shadow-sm backdrop-blur sm:px-3">
               <Link href="/" className="flex shrink-0 items-center gap-2">
                 <span className="flex size-7 items-center justify-center rounded-[0.35rem] bg-[#1a1a1a] text-white">
                   <ShieldCheckIcon className="size-3.5" strokeWidth={2.5} />

@@ -49,7 +49,11 @@ export function HeroReveal() {
           <img
             src="/dashboard.png"
             alt="Tally's live recovery dashboard"
-            className="absolute inset-x-2 top-0 w-[calc(100%-1rem)] rounded-xl shadow-2xl border-[8px] border-white/80 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl sm:border-[12px] transition-transform duration-500 ease-out"
+            // top is a fixed, non-animated part of its resting position - not
+            // the scroll-driven transform below - raised well above its old
+            // top-0 spot so a real chunk of it clears the hills immediately,
+            // before any scrolling happens at all.
+            className="absolute inset-x-2 top-[-26%] w-[calc(100%-1rem)] rounded-xl shadow-2xl border-[8px] border-white/80 sm:inset-x-6 sm:w-[calc(100%-3rem)] sm:rounded-2xl sm:border-[12px] transition-transform duration-500 ease-out"
             style={{
               // Always fully opaque - being hidden is the hills' job, done by
               // sitting on top of it, not by fading the image itself.
@@ -80,8 +84,6 @@ export function HeroReveal() {
             transform: `translateX(-50%) translateY(${-85 + progress * 200}%)`,
           }}
         />
-        {/* Gradient mask to smoothly blend the bottom of the hills into the white section below */}
-        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none" />
       </div>
     </div>
   );
