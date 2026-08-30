@@ -61,14 +61,12 @@ export default function HomePage() {
     <div className="bg-white">
       {/* ── hero: sky, navbar, headline, hills+dashboard reveal ── */}
       <div className="relative overflow-hidden bg-white">
-        {/* Background Image Layer */}
-        <div 
-          className="pointer-events-none absolute inset-0 bg-[url('/background.png')] bg-[length:100%_auto] bg-top bg-no-repeat"
-          aria-hidden="true" 
-        >
-          {/* Gradient mask to blend the background image seamlessly into the white background below */}
-          <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-white via-white/50 to-transparent" />
-        </div>
+        {/* Background Image Layer - shown at its own natural size, full
+            opacity throughout, no fade mask over it. */}
+        <div
+          className="pointer-events-none absolute inset-0 bg-[url('/background.avif')] bg-top bg-no-repeat"
+          aria-hidden="true"
+        />
 
         <div className="relative">
           {/* ── navbar ── */}
