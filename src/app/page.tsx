@@ -6,7 +6,16 @@ import {
   LockIcon,
   ZapIcon,
   Sparkles,
+  ArrowUpRightIcon,
 } from "lucide-react";
+
+import { listMerchants } from "@/lib/merchants";
+import { merchantStats } from "@/lib/insights";
+import { formatINR } from "@/lib/types";
+
+// Real merchant data, queried live - not something to prerender once and go
+// stale.
+export const dynamic = "force-dynamic";
 
 const FAILURE_CARDS = [
   {
@@ -54,7 +63,35 @@ const FEATURE_CARDS = [
   },
 ];
 
-export default function HomePage() {
+/** Real merchants, with their real recovery figures - not sample data. */
+async function connectedBusinesses() {
+  let merchants;
+  try {
+    merchants = await listMerchants();
+  } catch {
+    // A DB hiccup on the marketing page must not take the whole page down;
+    // the section just does not render.
+    return [];
+  }
+
+  return Promise.all(
+    merchants.map(async (m) => {
+      const stats = await merchantStats(m.id, 90).catch(() => null);
+      return {
+        slug: m.slug,
+        name: m.business_name,
+        active: m.active,
+        recovered: stats?.amount_recovered ?? 0,
+        recoveryRate: stats?.recovery_rate ?? 0,
+        events: stats?.total_events ?? 0,
+      };
+    }),
+  );
+}
+
+export default async function HomePage() {
+  const businesses = await connectedBusinesses();
+
   return (
     <div className="bg-white">
       {/* ── hero: sky, navbar, headline, hills+dashboard reveal ── */}
@@ -80,7 +117,7 @@ export default function HomePage() {
 
         <div className="relative">
           {/* ── navbar ── */}
-          <header className="mx-auto flex justify-center px-4 pt-5 sm:px-6">
+          <header className="mx-auto flex w-full max-w-[820px] items-center justify-center gap-3 px-4 pt-5 sm:px-6">
             <div className="flex w-full max-w-[760px] items-center justify-between gap-6 rounded-2xl border-[3px] border-white/50 bg-white px-2.5 py-2.5 shadow-sm backdrop-blur sm:px-3">
               <Link href="/" className="flex shrink-0 items-center gap-2">
                 <span className="flex size-7 items-center justify-center rounded-[0.35rem] bg-[#1a1a1a] text-white">
@@ -103,17 +140,6 @@ export default function HomePage() {
                 </Link>
               </nav>
 
-              <a
-                href="https://github.com/Mudavath-Giri-Naik/Tally"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="View the source on GitHub"
-                className="flex shrink-0 items-center justify-center rounded-full p-1.5 transition hover:bg-neutral-100"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/icons/github.png" alt="" className="size-5" />
-              </a>
-
               <Link
                 href="/onboarding"
                 className="flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-b from-[#3a3a3a] to-[#121212] py-2 pl-3.5 pr-1 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-[#222] transition hover:from-[#4a4a4a] hover:to-[#222]"
@@ -124,6 +150,20 @@ export default function HomePage() {
                 </span>
               </Link>
             </div>
+
+            {/* Deliberately outside the navbar pill, its own separate
+                rounded box sitting parallel to it - not another item inside
+                the same bar as the nav links and CTA. */}
+            <a
+              href="https://github.com/Mudavath-Giri-Naik/Tally"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="View the source on GitHub"
+              className="flex size-11 shrink-0 items-center justify-center rounded-2xl border-[3px] border-white/50 bg-white shadow-sm backdrop-blur transition hover:bg-neutral-50"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/github.png" alt="" className="size-5" />
+            </a>
           </header>
 
           {/* ── headline ── */}
@@ -259,6 +299,65 @@ export default function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* ── connected businesses ── */}
+      {businesses.length > 0 && (
+        <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 sm:pb-28">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-bold tracking-tight text-neutral-900 sm:text-4xl">
+              Businesses already connected
+            </h2>
+            <p className="mt-4 text-neutral-600">
+              Real merchants, real recovery figures - click through to see any
+              of these dashboards live.
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {businesses.map((b) => (
+              <Link
+                key={b.slug}
+                href={`/dashboard/${b.slug}`}
+                className="group flex flex-col justify-between rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition hover:border-neutral-300 hover:shadow-md"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-neutral-900">{b.name}</div>
+                    <span
+                      className={`mt-1 inline-flex items-center gap-1.5 text-xs font-medium ${
+                        b.active ? "text-emerald-600" : "text-neutral-400"
+                      }`}
+                    >
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          b.active ? "bg-emerald-500" : "bg-neutral-300"
+                        }`}
+                      />
+                      {b.active ? "Live" : "Paused"}
+                    </span>
+                  </div>
+                  <ArrowUpRightIcon className="size-4 shrink-0 text-neutral-300 transition group-hover:text-neutral-600" />
+                </div>
+
+                <div className="mt-6 grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-lg font-bold tracking-tight text-neutral-900">
+                      {formatINR(b.recovered)}
+                    </div>
+                    <div className="text-xs text-neutral-500">recovered</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold tracking-tight text-neutral-900">
+                      {b.recoveryRate}%
+                    </div>
+                    <div className="text-xs text-neutral-500">recovery rate</div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
