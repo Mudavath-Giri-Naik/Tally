@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   Area,
   AreaChart,
@@ -34,9 +35,6 @@ import {
   DownloadIcon,
   SearchIcon,
   CalendarIcon,
-  MailIcon,
-  MessageCircleIcon,
-  PhoneIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   XIcon,
@@ -135,21 +133,43 @@ function compactINR(paise: number): string {
   return `₹${Math.round(r)}`;
 }
 
-function ChannelMark({ channel }: { channel: string | null }) {
+/**
+ * The channel a customer was reached on, as the service's own mark.
+ *
+ * The brand logos are more legible at this size than a generic envelope or
+ * handset would be - people recognise them without reading, which is the whole
+ * job of a column you scan rather than read. So no text label: the mark alone
+ * carries it, and `title` plus `alt` keep it available to a screen reader and
+ * on hover.
+ */
+const CHANNEL_ICON: Record<string, { src: string; label: string }> = {
+  email: { src: "/icons/email.png", label: "Email" },
+  whatsapp: { src: "/icons/whatsapp.png", label: "WhatsApp" },
+  voice: { src: "/icons/voice.png", label: "Call" },
+};
+
+function ChannelMark({ channel, size = 18 }: { channel: string | null; size?: number }) {
   if (!channel) {
-    return <span className="text-muted-foreground/70 text-sm">—</span>;
+    return (
+      <span className="text-muted-foreground/70 text-sm" title="Nothing has reached them yet">
+        —
+      </span>
+    );
   }
-  const label = channel === "whatsapp" ? "WhatsApp" : channel === "voice" ? "Call" : "Email";
-  const Icon = channel === "whatsapp" ? MessageCircleIcon : channel === "voice" ? PhoneIcon : MailIcon;
-  const tone =
-    channel === "whatsapp" ? "text-emerald-600 dark:text-emerald-400"
-      : channel === "voice" ? "text-amber-600 dark:text-amber-400"
-        : "text-blue-600 dark:text-blue-400";
+
+  const icon = CHANNEL_ICON[channel];
+  if (!icon) return <span className="text-muted-foreground/70 text-sm">—</span>;
+
   return (
-    <span className={cn("flex items-center gap-1.5 text-sm font-medium", tone)} title={`Last reached by ${label}`}>
-      <Icon className="size-3.5 shrink-0" />
-      <span className="max-lg:hidden">{label}</span>
-    </span>
+    <Image
+      src={icon.src}
+      alt={icon.label}
+      title={`Last reached by ${icon.label}`}
+      width={size}
+      height={size}
+      className="shrink-0 rounded-[4px]"
+      unoptimized
+    />
   );
 }
 
@@ -605,7 +625,7 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
               .map((c) => (
                 <div key={c.channel} className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <ChannelMark channel={c.channel} />
+                    <ChannelMark channel={c.channel} size={22} />
                     <span className="text-sm font-bold tabular-nums">{c.rate}%</span>
                   </div>
                   <div className="bg-muted h-1.5 overflow-hidden rounded-full">
