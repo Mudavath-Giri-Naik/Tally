@@ -228,49 +228,42 @@ function MetricCard({
   const id = label.replace(/\W/g, "");
 
   return (
-    <Card
-      size="sm"
-      className="gap-0 overflow-hidden border pb-0"
-      style={{
-        // A light tint of the card's own colour, not a flat white box - the
-        // same technique already used on the icon chip, just at a much lower
-        // strength so it reads as a wash rather than a block of colour.
-        background: `color-mix(in oklab, ${colour} 7%, var(--card))`,
-        borderColor: `color-mix(in oklab, ${colour} 22%, var(--border))`,
-      }}
-    >
-      <CardHeader className="flex items-center gap-2 pb-1">
+    <Card className="gap-0 overflow-hidden pb-0">
+      <CardHeader className="flex items-center gap-2">
         <div
-          className="flex size-7 shrink-0 items-center justify-center rounded-md"
-          style={{ background: `color-mix(in oklab, ${colour} 16%, transparent)`, color: colour }}
+          className="flex size-8 shrink-0 items-center justify-center rounded-sm"
+          style={{ background: `color-mix(in oklab, ${colour} 12%, transparent)`, color: colour }}
         >
           {icon}
         </div>
-        <span className="text-xl font-semibold tracking-tight tabular-nums">{value}</span>
+        <span className="text-2xl font-semibold tracking-tight tabular-nums">{value}</span>
       </CardHeader>
-      <CardContent className="flex flex-col gap-1 pb-2.5">
+      <CardContent className="flex flex-col gap-1.5 pb-4">
         <span className="text-sm font-semibold">{label}</span>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {deltaValue !== undefined && <DeltaText value={deltaValue} riseIsGood={riseIsGood} />}
           {sub && <span className="text-muted-foreground text-xs">{sub}</span>}
         </div>
       </CardContent>
-      {/* Shape only - the number above carries the value, so no axes. Kept
-          slim: this is a hint of trend, not a chart worth its own height. */}
-      <ChartContainer config={SPARK_CONFIG} className="h-[26px] w-full">
-        <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+      {/* Shape only - the number above carries the value, so no axes. Gradient
+          stops match shadcn's own gradient-area example (5%/95% at .8/.1),
+          so the fill reads the same way every other gradient chart in this
+          library does. */}
+      <ChartContainer config={SPARK_CONFIG} className="h-[46px] w-full">
+        <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id={`sp-${id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={colour} stopOpacity={0.24} />
-              <stop offset="100%" stopColor={colour} stopOpacity={0.02} />
+              <stop offset="5%" stopColor={colour} stopOpacity={0.8} />
+              <stop offset="95%" stopColor={colour} stopOpacity={0.1} />
             </linearGradient>
           </defs>
           <Area
             dataKey="v"
-            type="monotone"
+            type="natural"
             stroke={colour}
-            strokeWidth={1.6}
+            strokeWidth={1.8}
             fill={`url(#sp-${id})`}
+            fillOpacity={0.4}
             isAnimationActive={false}
             dot={false}
           />
@@ -672,20 +665,52 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
       {/* ── status cards ── */}
       <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Needs a human", value: m.needs_human, sub: "risk flags and repeat failures", tone: "human" },
-          { label: "Promise-to-pay active", value: m.promise_active, sub: "awaiting a promised date", tone: "voice" },
-          { label: "Escalated to voice", value: m.escalated_voice, sub: "a call was placed", tone: "chasing" },
-          { label: "Stopped", value: m.stopped, sub: "capped or opted out", tone: "stopped" },
+          {
+            label: "Needs a human", value: m.needs_human,
+            sub: "risk flags and repeat failures", tone: "human",
+            icon: <TriangleAlertIcon className="size-4" />, colour: "var(--destructive)",
+          },
+          {
+            label: "Promise-to-pay active", value: m.promise_active,
+            sub: "awaiting a promised date", tone: "voice",
+            icon: <SendIcon className="size-4" />, colour: "var(--chart-4)",
+          },
+          {
+            label: "Escalated to voice", value: m.escalated_voice,
+            sub: "a call was placed", tone: "chasing",
+            icon: <ShieldCheckIcon className="size-4" />, colour: "var(--chart-1)",
+          },
+          {
+            label: "Stopped", value: m.stopped,
+            sub: "capped or opted out", tone: "stopped",
+            icon: <XIcon className="size-4" />, colour: "var(--muted-foreground)",
+          },
         ].map((s) => (
-          <Card key={s.label}>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <span className={cn("size-2 rounded-full", DOT_CLASS[s.tone])} aria-hidden="true" />
-                <span className="text-sm font-semibold">{s.label}</span>
+          <Card
+            key={s.label}
+            size="sm"
+            className="gap-0 border"
+            style={{
+              background: `color-mix(in oklab, ${s.colour} 7%, var(--card))`,
+              borderColor: `color-mix(in oklab, ${s.colour} 22%, var(--border))`,
+            }}
+          >
+            <CardContent className="flex items-center gap-3 py-1">
+              <div
+                className="flex size-8 shrink-0 items-center justify-center rounded-md"
+                style={{ background: `color-mix(in oklab, ${s.colour} 16%, transparent)`, color: s.colour }}
+              >
+                {s.icon}
               </div>
-              <div className="mt-2 text-2xl font-bold tracking-tight tabular-nums">{s.value}</div>
-              <p className="text-muted-foreground mt-0.5 text-xs">{s.sub}</p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className={cn("size-1.5 rounded-full", DOT_CLASS[s.tone])} aria-hidden="true" />
+                  <span className="text-muted-foreground truncate text-xs font-semibold">{s.label}</span>
+                </div>
+                <div className="text-xl font-bold tracking-tight tabular-nums">{s.value}</div>
+              </div>
             </CardContent>
+            <p className="text-muted-foreground px-3 pb-2.5 text-xs">{s.sub}</p>
           </Card>
         ))}
       </div>
