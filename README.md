@@ -143,8 +143,6 @@ flowchart TD
 | **Case detail** | The whole conversation, channel-native: email thread, WhatsApp bubbles, call summary, admin actions. |
 | **Settings** | Contact window, channels, attempt cap, pause switch, webhook URL. |
 
-<img src="public/chat.png" alt="Tally customer detail panel — a channel-native conversation, resolved" width="420" />
-
 ---
 
 ## Tech stack
