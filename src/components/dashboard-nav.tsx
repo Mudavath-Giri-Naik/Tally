@@ -8,7 +8,7 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGridIcon, SettingsIcon } from "lucide-react";
+import { LayoutGridIcon, SettingsIcon, UsersIcon } from "lucide-react";
 
 import {
   SidebarGroup,
@@ -21,11 +21,12 @@ import {
 export interface NavItem {
   href: string;
   label: string;
-  icon: "overview" | "settings";
+  icon: "overview" | "customers" | "settings";
 }
 
 const ICONS = {
   overview: LayoutGridIcon,
+  customers: UsersIcon,
   settings: SettingsIcon,
 };
 

@@ -204,6 +204,11 @@ input[type='number']::-webkit-outer-spin-button {
   }
   html {
     @apply font-sans;
+    /* Reserved permanently, not just when a scrollbar is showing - otherwise
+       the vertical scrollbar appearing the moment a panel opens (the page
+       just became taller than the viewport) silently eats into whatever
+       width layout already measured a moment earlier. */
+    scrollbar-gutter: stable;
   }
 }
 

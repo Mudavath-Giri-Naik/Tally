@@ -27,15 +27,22 @@ export type BoardStatus =
   | "disputed"
   | "written_off";
 
+/**
+ * Display order for the status tabs, and the only place it is defined.
+ *
+ * Roughly the arc a case travels: recovered first, then still-moving, then
+ * handed off, then the several ways it can end. The two admin-only endings
+ * come last because they are the rarest.
+ */
 export const BOARD_STATUSES: BoardStatus[] = [
   "recovered",
   "chasing",
   "escalated_voice",
   "needs_human",
-  "disputed",
   "stopped",
-  "written_off",
   "opted_out",
+  "disputed",
+  "written_off",
 ];
 
 export const STATUS_META: Record<
