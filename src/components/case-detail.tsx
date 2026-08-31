@@ -237,66 +237,127 @@ const CHAT_ACTION_LABEL: Record<string, string> = {
   flag_disputed: "Flagged as disputed",
 };
 
-function ChatTurn({ turn }: { turn: AdminChatTurn }) {
-  // The admin's own line and what we sent the customer are both "ours" and sit
-  // right; the customer's own words sit left, in WhatsApp's own green, so a
-  // reply is recognisable at a glance rather than by reading it.
-  const mine = turn.from === "you" || turn.from === "to-customer";
-  const fromCustomer = turn.from === "customer";
-  const label = turn.action ? CHAT_ACTION_LABEL[turn.action] : null;
+/**
+ * WhatsApp's own chat wallpaper, near enough: the beige (or near-black) ground
+ * with a faint doodle over it. Inlined as a data URI because the surface has to
+ * survive with no network, and tiled because a repeating 240px cell costs less
+ * than a photograph and never blocks first paint.
+ *
+ * One ink colour only - dark mode inverts it, which is cheaper and more
+ * consistent than shipping the pattern twice.
+ */
+const WA_DOODLE =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M20 28h26a5 5 0 015 5v14a5 5 0 01-5 5H30l-8 7v-7a5 5 0 01-2-4V33a5 5 0 010-5z'/%3E%3Ccircle cx='104' cy='34' r='9'/%3E%3Cpath d='M150 22v20M140 32h20'/%3E%3Cpath d='M188 44c6-10 18-10 18 0s-12 14-18 20c-6-6-18-10-18-20s12-10 18 0z'/%3E%3Cpath d='M28 96c8-12 22-12 30 0'/%3E%3Cpath d='M74 108h22a4 4 0 014 4v10a4 4 0 01-4 4H82l-6 6v-6a4 4 0 01-2-4v-10a4 4 0 014-4z'/%3E%3Ccircle cx='150' cy='104' r='6'/%3E%3Cpath d='M144 128h34M144 136h22'/%3E%3Cpath d='M198 96l8 8-8 8-8-8z'/%3E%3Cpath d='M22 168h30M22 178h18'/%3E%3Ccircle cx='84' cy='176' r='11'/%3E%3Cpath d='M84 170v7l5 3'/%3E%3Cpath d='M126 160c10 0 16 6 16 14s-6 14-16 14-16-6-16-14 6-14 16-14z'/%3E%3Cpath d='M182 164l10 22 10-22'/%3E%3Cpath d='M46 210c10-8 22-8 32 0'/%3E%3Cpath d='M120 214h40M120 222h26'/%3E%3Ccircle cx='202' cy='216' r='8'/%3E%3C/svg%3E\")";
 
-  return (
-    <div
-      className={cn(
-        "animate-in fade-in slide-in-from-bottom-1 flex flex-col duration-300",
-        mine ? "items-end" : "items-start",
-      )}
-    >
-      {/* Named, because three different voices in one thread is two too many
-          to infer from alignment alone. */}
-      {turn.from !== "you" && (
-        <span className="text-muted-foreground mb-0.5 px-1 text-[0.65rem] font-semibold tracking-wide uppercase">
-          {fromCustomer ? "Customer" : turn.from === "to-customer" ? "Sent to customer" : "Agent"}
+/** Local wall-clock, WhatsApp style: no date, no seconds, just when. */
+function clockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * One line of the thread, in one of three lanes.
+ *
+ * Left is the customer, right is what the business said to them - the two
+ * halves of the conversation that actually matters, laid out the way every
+ * messaging app has already taught people to read. The admin's questions to the
+ * agent and the agent's answers are neither of those: they are a side
+ * conversation held *over* the transcript, so they run down the middle in a
+ * visibly different material. Nobody should have to wonder whether something
+ * in this box reached the customer.
+ */
+function ChatTurn({ turn }: { turn: AdminChatTurn }) {
+  const label = turn.action ? CHAT_ACTION_LABEL[turn.action] : null;
+  const aside = turn.from === "you" || turn.from === "agent";
+  const fromCustomer = turn.from === "customer";
+
+  const extras = (
+    <>
+      {/* What it did, when it did something - the confirmation is the point,
+          not decoration: an admin who said "message them now" needs to see
+          that it went, not just that the agent replied agreeably. */}
+      {label && turn.performed && (
+        <span className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+          <CircleCheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          {label}
         </span>
       )}
+
+      {/* What the customer actually received, not a summary of it. An admin
+          who ordered the send is answerable for its wording. */}
+      {turn.sentBody && (
+        <div className="mt-2 rounded-md border border-black/10 bg-white/60 p-2.5 text-xs whitespace-pre-wrap dark:border-white/10 dark:bg-black/20">
+          {turn.sentBody}
+        </div>
+      )}
+
+      {turn.error && (
+        <span className="mt-2 flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
+          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {turn.error}
+        </span>
+      )}
+    </>
+  );
+
+  // The middle lane. Deliberately not a bubble: bubbles in this box mean
+  // "someone was talking to the customer", and this exchange was not.
+  if (aside) {
+    const mine = turn.from === "you";
+    return (
+      <div className="animate-in fade-in slide-in-from-bottom-1 flex justify-center px-2 duration-300">
+        <div
+          className={cn(
+            "w-full max-w-[78%] rounded-lg border border-dashed px-3 py-2 text-sm shadow-sm backdrop-blur-sm",
+            mine
+              ? "border-slate-400/60 bg-white/80 text-slate-900 dark:border-slate-500/60 dark:bg-slate-900/70 dark:text-slate-100"
+              : "border-violet-400/60 bg-violet-50/85 text-violet-950 dark:border-violet-500/50 dark:bg-violet-950/60 dark:text-violet-50",
+          )}
+        >
+          <span
+            className={cn(
+              "mb-1 flex items-center gap-1.5 text-[0.6rem] font-semibold tracking-[0.08em] uppercase",
+              mine
+                ? "text-slate-500 dark:text-slate-400"
+                : "text-violet-600 dark:text-violet-300",
+            )}
+          >
+            {mine ? (
+              <UserIcon className="size-3 shrink-0" aria-hidden="true" />
+            ) : (
+              <SparklesIcon className="size-3 shrink-0" aria-hidden="true" />
+            )}
+            {mine ? "You asked" : "Agent"}
+            <span className="ml-auto font-normal tracking-normal normal-case opacity-70 tabular-nums">
+              {clockTime(turn.at)}
+            </span>
+          </span>
+          <span className="whitespace-pre-wrap">{turn.text}</span>
+          {extras}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("flex px-1", fromCustomer ? "justify-start" : "justify-end")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
+          "animate-in fade-in relative max-w-[80%] px-2.5 py-1.5 text-sm shadow-sm duration-300",
           fromCustomer
-            ? "rounded-bl-sm border border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100"
-            : turn.from === "to-customer"
-              ? "bg-muted rounded-br-sm"
-              : mine
-                ? "bg-primary text-primary-foreground rounded-br-sm"
-                : "bg-muted rounded-bl-sm",
+            ? "slide-in-from-left-2 rounded-lg rounded-tl-none bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef]"
+            : "slide-in-from-right-2 rounded-lg rounded-tr-none bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef]",
         )}
       >
         <span className="whitespace-pre-wrap">{turn.text}</span>
-
-        {/* What it did, when it did something - the confirmation is the point,
-            not decoration: an admin who said "message them now" needs to see
-            that it went, not just that the agent replied agreeably. */}
-        {label && turn.performed && (
-          <span className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-            <CircleCheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
-            {label}
-          </span>
-        )}
-
-        {/* What the customer actually received, not a summary of it. An admin
-            who ordered the send is answerable for its wording. */}
-        {turn.sentBody && (
-          <div className="bg-background/70 text-foreground mt-2 rounded-md border p-2.5 text-xs whitespace-pre-wrap">
-            {turn.sentBody}
-          </div>
-        )}
-
-        {turn.error && (
-          <span className="mt-2 flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
-            <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            {turn.error}
-          </span>
-        )}
+        {extras}
+        {/* Time tucked under the last line, as the app it is imitating does. */}
+        <span className="float-right mt-1 ml-2 text-[0.65rem] tabular-nums opacity-60">
+          {clockTime(turn.at)}
+        </span>
+        <span className="clear-both block" />
       </div>
     </div>
   );
@@ -325,7 +386,10 @@ function ChatBox({
   }
 
   return (
-    <div className="shrink-0 border-t p-3 sm:px-4">
+    // The composer keeps WhatsApp's band-below-the-wallpaper shape, but not its
+    // colour scheme's promise: what you type here goes to the agent, so it is
+    // dressed as the middle lane it lands in, not as an outgoing message.
+    <div className="shrink-0 border-t bg-[#f0f2f5] p-3 sm:px-4 dark:bg-[#202c33]">
       <div className="flex items-end gap-2">
         <Textarea
           value={draft}
@@ -341,12 +405,12 @@ function ChatBox({
           placeholder="Ask the agent, or tell it what to do…"
           rows={1}
           disabled={asking}
-          className="max-h-24 min-h-9 resize-none py-2 text-sm"
+          className="max-h-24 min-h-9 resize-none rounded-2xl border-transparent bg-white py-2 text-sm dark:bg-[#2a3942]"
           aria-label="Ask the agent about this case"
         />
         <Button
           size="icon"
-          className="size-9 shrink-0"
+          className="size-9 shrink-0 rounded-full"
           onClick={submit}
           disabled={asking || draft.trim().length === 0}
           aria-label="Send"
@@ -365,13 +429,15 @@ function ChatBox({
 /** Three dots while the agent is working, so the box is never silently busy. */
 function ThinkingBubble() {
   return (
-    <div className="animate-in fade-in flex justify-start duration-200">
-      <div className="bg-muted text-muted-foreground flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-sm">
+    // Centred, because the agent is answering the admin - putting it in the
+    // customer's lane would imply someone is being messaged.
+    <div className="animate-in fade-in flex justify-center px-2 duration-200">
+      <div className="flex items-center gap-1.5 rounded-lg border border-dashed border-violet-400/60 bg-violet-50/85 px-3 py-2.5 text-sm text-violet-700 backdrop-blur-sm dark:border-violet-500/50 dark:bg-violet-950/60 dark:text-violet-300">
         <SparklesIcon className="size-3.5 shrink-0 animate-pulse" aria-hidden="true" />
         <span className="flex gap-1">
-          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:0ms]" />
-          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:150ms]" />
-          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:300ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:0ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:150ms]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:300ms]" />
         </span>
       </div>
     </div>
@@ -1269,11 +1335,20 @@ export function DetailPanel({
                 below the story rather than in a panel of its own - what was
                 asked about this case is part of the case. */}
             {(persistedChat.length > 0 || pending.length > 0 || asking) && (
-              <div className="mt-2 flex flex-col gap-2 border-t pt-4">
-                {[...persistedChat, ...pending].map((turn) => (
-                  <ChatTurn key={turn.id} turn={turn} />
-                ))}
-                {asking && <ThinkingBubble />}
+              <div className="relative -mx-4 -mb-4 mt-4 overflow-hidden border-t bg-[#efeae2] sm:-mx-6 sm:-mb-6 dark:bg-[#0b141a]">
+                {/* The wallpaper sits in its own layer so it can be inverted
+                    for dark mode without touching the text above it. */}
+                <div
+                  className="pointer-events-none absolute inset-0 opacity-[0.06] dark:opacity-[0.07] dark:invert"
+                  style={{ backgroundImage: WA_DOODLE }}
+                  aria-hidden="true"
+                />
+                <div className="relative flex flex-col gap-2 p-3 sm:p-4">
+                  {[...persistedChat, ...pending].map((turn) => (
+                    <ChatTurn key={turn.id} turn={turn} />
+                  ))}
+                  {asking && <ThinkingBubble />}
+                </div>
               </div>
             )}
           </div>
