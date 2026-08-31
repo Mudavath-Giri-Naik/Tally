@@ -17,7 +17,8 @@
  * regardless of who moved it forward.
  */
 import { getProvider, type AgentCommand } from "./providers";
-import { updateMerchantSettings } from "../merchants";
+import { updateMerchantSettings, razorpayCredentials } from "../merchants";
+import { createRetryLink, adminLinkReference } from "../razorpay";
 import { applyAdminOverride, AdminActionError, recordAction, getEvent } from "../events";
 import { liveTransport } from "./worker";
 import { stripInventedLinks } from "./links";
@@ -87,6 +88,27 @@ export function explainFailure(raw: string): string {
   if (s.includes("not configured") || s.includes("missing")) {
     return `${raw} Set it in the environment and try again.`;
   }
+  // Razorpay's payment-link failures, which used to surface as a shrug and
+  // send the agent hunting for an explanation it did not have.
+  if (s.includes("payment link creation failed")) {
+    if (s.includes("401") || s.includes("authentication")) {
+      return "Razorpay rejected this business's API keys. Reconnect them in onboarding.";
+    }
+    if (s.includes("duplicate") || s.includes("reference_id")) {
+      return "A link already exists for this attempt. Trigger the next step and I can make a fresh one.";
+    }
+    if (s.includes("amount")) {
+      return "Razorpay rejected the amount on this case - it is below their minimum or not a whole number of paise.";
+    }
+    if (s.includes("contact") || s.includes("email") || s.includes("customer")) {
+      return "Razorpay would not accept this customer's contact details for a link.";
+    }
+    if (s.includes("400")) {
+      // The body is quoted rather than paraphrased: Razorpay names the field.
+      return `Razorpay refused the link: ${raw.slice(raw.indexOf(":") + 1).trim()}`;
+    }
+    return raw;
+  }
   if (s.includes("429") || s.includes("rate limit") || s.includes("quota")) {
     return "The model is rate-limited right now. Give it a moment and ask again.";
   }
@@ -124,6 +146,11 @@ function systemPrompt(): string {
     "",
     "For set_contact_window give window_start and window_end as HH:MM, 24-hour.",
     "For snooze give snooze_until as YYYY-MM-DD.",
+    "",
+    "When something fails you are given the reason. Say that reason and",
+    "nothing more. Never speculate about expired sessions, credential",
+    "mismatches or sync problems - if you were not told why, say you do not",
+    "know and that the error is in the logs.",
     "",
     "You may send outside the contact window when the admin explicitly asks for",
     "it now - they can see the clock. You may never message a customer who has",
@@ -301,17 +328,27 @@ async function paymentLinkFor(
   try {
     const event = await getEvent(merchant.id, row.event_id);
     if (!event) return { url: null, error: "I could not find this case to bill against." };
-    const url = await liveTransport.createLink(merchant, event, {
-      name: customer?.name ?? null,
-      email: customer?.email ?? null,
-      phone: customer?.phone ?? null,
+
+    // createRetryLink directly, not through the worker's transport: that one
+    // catches the failure, logs it to a console nobody here can read, and
+    // returns null, because for an unattended send a missing link is a
+    // degraded message rather than a failed one. An admin who asked for the
+    // link needs the actual reason - without it the agent was left guessing
+    // at causes, which it did, confidently and wrongly.
+    const creds = razorpayCredentials(merchant);
+    const url = await createRetryLink({
+      keyId: creds.keyId,
+      keySecret: creds.keySecret,
+      amount: row.amount,
+      currency: "INR",
+      customerName: customer?.name ?? null,
+      customerEmail: customer?.email ?? null,
+      customerPhone: customer?.phone ?? null,
+      description: `Payment to ${merchant.business_name}`,
+      // Unique per request, so asking twice is two links rather than a
+      // duplicate Razorpay refuses.
+      referenceId: adminLinkReference(row.event_id),
     });
-    if (!url) {
-      return {
-        url: null,
-        error: "Razorpay would not issue a payment link for this one.",
-      };
-    }
     return { url, error: null };
   } catch (err) {
     return {

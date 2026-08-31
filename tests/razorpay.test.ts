@@ -6,6 +6,7 @@ import {
   isSupportedEvent,
   RECOVERY_CONFIRMATION_EVENTS,
   retryLinkReference,
+  adminLinkReference,
   RAZORPAY_REFERENCE_ID_MAX,
 } from "../src/lib/razorpay";
 import { randomUUID } from "node:crypto";
@@ -320,5 +321,32 @@ describe("success events must never become failures", () => {
     const n = normalise(hook)!;
     assert.equal(n.metadata.customer_email, null);
     assert.equal(n.metadata.customer_phone, null);
+  });
+});
+
+describe("the reference for an admin-requested link", () => {
+  test("differs between two requests for the same case", () => {
+    // The worker's reference is keyed on the attempt, which makes a repeat
+    // request a duplicate Razorpay refuses. On a case at zero attempts that
+    // meant the second "send me the link" always failed.
+    const id = randomUUID();
+    const a = adminLinkReference(id, 1_700_000_000_000);
+    const b = adminLinkReference(id, 1_700_000_000_001);
+    assert.notEqual(a, b, "two requests must not collide");
+  });
+
+  test("stays inside Razorpay's 40-character limit", () => {
+    const ref = adminLinkReference(randomUUID(), 9_999_999_999_999);
+    assert.ok(
+      ref.length <= RAZORPAY_REFERENCE_ID_MAX,
+      `${ref} is ${ref.length} characters`,
+    );
+  });
+
+  test("is distinguishable from a worker reference", () => {
+    // They land in the same Razorpay account; telling them apart matters
+    // when reconciling which links a person asked for by hand.
+    assert.ok(adminLinkReference(randomUUID()).startsWith("a_"));
+    assert.ok(retryLinkReference(randomUUID(), 0).startsWith("t_"));
   });
 });

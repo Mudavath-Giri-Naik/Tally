@@ -248,6 +248,20 @@ export function retryLinkReference(eventId: string, attempts: number): string {
 }
 
 /**
+ * The reference for a link an admin asked for, there and then.
+ *
+ * Deliberately not retryLinkReference: that one is keyed on the attempt,
+ * which makes the worker's link creation idempotent - ask twice for one
+ * attempt and Razorpay rejects the duplicate, which is exactly what should
+ * happen to a retrying worker. An admin pressing "send me the link" a second
+ * time means it, and on a case sitting at zero attempts the two requests
+ * would otherwise be indistinguishable, so the second was always refused.
+ */
+export function adminLinkReference(eventId: string, now = Date.now()): string {
+  return `a_${eventId.replace(/-/g, "").slice(0, 20)}_${now.toString(36)}`;
+}
+
+/**
  * A fresh payment link the customer can use to retry.
  *
  * Built with the *merchant's own* Razorpay credentials, so the money lands in

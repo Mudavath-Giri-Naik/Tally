@@ -31,6 +31,7 @@ import {
   PhoneCallIcon,
   CircleCheckIcon,
   ClockIcon,
+  MessageCircleIcon,
   ShieldCheckIcon,
   SparklesIcon,
 } from "lucide-react";
@@ -498,11 +499,29 @@ function WhatsAppBubble({ entry }: { entry: TimelineEntry }) {
 function WhatsAppAttemptCard({ entries, to }: { entries: TimelineEntry[]; to: string | null }) {
   const first = entries[0];
   const anyOutOfWindow = entries.some((e) => e.in_window === false);
+  // A reply is the most important thing that can happen on a case - someone
+  // who was being chased answered - and it was rendered as just another
+  // bubble in the stack, indistinguishable at a glance from what we sent.
+  const replies = entries.filter((e) => (e.message ?? "").startsWith(INBOUND_PREFIX)).length;
   return (
-    <div className="rounded-xl border p-4 shadow-sm">
+    <div
+      className={cn(
+        "rounded-xl border p-4 shadow-sm",
+        replies > 0 && "border-emerald-300 dark:border-emerald-900",
+      )}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <Image src="/icons/whatsapp.png" alt="WhatsApp" width={18} height={18} className="rounded-[4px]" unoptimized />
         <span className="text-sm font-semibold">WhatsApp</span>
+        {replies > 0 && (
+          <Badge
+            variant="outline"
+            className="gap-1 border-emerald-200 bg-emerald-50 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
+          >
+            <MessageCircleIcon className="size-3" />
+            {replies === 1 ? "Customer replied" : `Customer replied ${replies}x`}
+          </Badge>
+        )}
         {anyOutOfWindow && (
           <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>outside window</Badge>
         )}
@@ -895,6 +914,7 @@ const STEP_TONE: Record<string, string> = {
   origin: "border-amber-500 text-amber-600 dark:text-amber-400",
   email: "border-blue-500 text-blue-600 dark:text-blue-400",
   whatsapp: "border-emerald-500 text-emerald-600 dark:text-emerald-400",
+  replied: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
   voice: "border-amber-500 text-amber-600 dark:text-amber-400",
   admin: "border-slate-400 text-slate-600 dark:text-slate-300",
   resolution: "border-muted-foreground/50 text-muted-foreground",
@@ -952,7 +972,13 @@ function TimelineStep({
 /** The rail tone for one attempt group - failures win over the channel's own. */
 function toneForGroup(group: AttemptGroup): string {
   if (group.kind === "whatsapp") {
-    return group.entries.some((e) => e.outcome === "failed") ? "failed" : "whatsapp";
+    if (group.entries.some((e) => e.outcome === "failed")) return "failed";
+    // A reply outranks the send it answered: scanning the rail, "they wrote
+    // back" is the step worth jumping to.
+    if (group.entries.some((e) => (e.message ?? "").startsWith(INBOUND_PREFIX))) {
+      return "replied";
+    }
+    return "whatsapp";
   }
   if (group.entry.outcome === "failed") return "failed";
   return group.kind;
