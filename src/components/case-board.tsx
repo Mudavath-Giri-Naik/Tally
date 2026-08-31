@@ -64,6 +64,7 @@ import {
   initials,
   shortDate,
   shortTime,
+  stopReasonLabel,
 } from "@/components/case-parts";
 import { DetailPanel } from "@/components/case-detail";
 import { AdminActionDialog, RowActionsMenu } from "@/components/case-actions";
@@ -381,6 +382,17 @@ export function CaseBoard({
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <StatusBadge status={row.status} />
+                        {/* "Needs human" covers a fraud flag, three failed
+                            cycles and an admin escalation alike - which one
+                            it was decides what the merchant should do. */}
+                        {row.stop_reason && (
+                          <span
+                            className="text-muted-foreground text-xs"
+                            title={stopReasonLabel(row.stop_reason) ?? undefined}
+                          >
+                            {stopReasonLabel(row.stop_reason)}
+                          </span>
+                        )}
                         {row.paused && (
                           <Badge variant="outline" className="gap-1 text-xs">
                             <PauseIcon className="size-3" />Paused
@@ -483,6 +495,7 @@ export function CaseBoard({
             row={openRow}
             entries={timeline}
             error={timelineError}
+            onAction={(action) => setOverrideTarget({ row: openRow, action })}
           />
         </div>
       )}

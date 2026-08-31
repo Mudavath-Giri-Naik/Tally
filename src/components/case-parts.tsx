@@ -77,6 +77,23 @@ export function shortTime(iso: string): string {
   });
 }
 
+/**
+ * "just now", "12m ago", "3d ago" - how long since something happened.
+ *
+ * Paired with the exact time rather than replacing it: the relative form is
+ * what makes a trail feel live, but "2h ago" alone cannot be reconciled
+ * against a provider's own logs, so the absolute stamp stays alongside it.
+ */
+export function relativeTime(iso: string, now = Date.now()): string {
+  const seconds = Math.round((now - Date.parse(iso)) / 1000);
+  if (!Number.isFinite(seconds)) return "";
+  if (seconds < 45) return "just now";
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+  const days = Math.round(seconds / 86400);
+  return days === 1 ? "yesterday" : `${days}d ago`;
+}
+
 /** Rupees, abbreviated the Indian way, for an axis where space is scarce. */
 export function compactINR(paise: number): string {
   const r = paise / 100;
@@ -236,6 +253,38 @@ export function WorkflowPills({ enabled, slug }: { enabled: WorkflowId[]; slug: 
       </Link>
     </div>
   );
+}
+
+/* ── why the agent stopped ───────────────────────────────────────────────── */
+
+/**
+ * Stop reasons in the merchant's words.
+ *
+ * These are written as what happened and what it means for them, not as the
+ * enum: "Needs human" on its own does not distinguish a fraud flag from a
+ * customer who has failed three cycles, and those want opposite responses.
+ * Anything unmapped falls back to the raw value with its underscores
+ * stripped, so a new reason degrades to readable rather than to blank.
+ */
+export const STOP_REASON_LABEL: Record<string, string> = {
+  repeat_failure_across_cycles: "Failed repeatedly - handed to a human",
+  risk_flagged: "Blocked by fraud checks - handed to a human",
+  admin_escalated: "Escalated by an admin",
+  customer_opted_out: "Customer opted out",
+  no_contact_details: "No email or phone on file",
+  max_attempts_reached: "Attempt limit reached",
+  no_channels_enabled: "No channels switched on",
+  workflow_disabled: "This workflow is switched off",
+  agent_chose_stop: "Agent judged further contact pointless",
+  escalated_to_human: "Handed to a human",
+  admin_disputed: "Flagged as disputed",
+  admin_written_off: "Written off",
+  merchant_missing: "Business record missing",
+};
+
+export function stopReasonLabel(reason: string | null): string | null {
+  if (!reason) return null;
+  return STOP_REASON_LABEL[reason] ?? reason.replace(/_/g, " ");
 }
 
 /* ── admin overrides ─────────────────────────────────────────────────────── */

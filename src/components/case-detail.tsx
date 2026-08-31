@@ -29,6 +29,9 @@ import {
   MailWarningIcon,
   PhoneCallIcon,
   CircleCheckIcon,
+  ClockIcon,
+  ShieldCheckIcon,
+  SparklesIcon,
 } from "lucide-react";
 
 import { formatINR, type AdminActionId } from "@/lib/types";
@@ -40,9 +43,15 @@ import {
   type BoardRow,
   type TimelineEntry,
 } from "@/lib/board";
-import { ADMIN_ACTIONS } from "@/lib/admin-actions";
+import {
+  ADMIN_ACTIONS,
+  availableAdminActions,
+  hasPendingStep,
+  type AdminActionDef,
+} from "@/lib/admin-actions";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -53,8 +62,10 @@ import {
   STATUS_CLASS,
   WorkflowBadge,
   initials,
+  relativeTime,
   shortDate,
   shortTime,
+  stopReasonLabel,
 } from "@/components/case-parts";
 
 /* ── attempt cards ───────────────────────────────────────────────────────── */
@@ -88,6 +99,46 @@ function outcomeMeta(outcome: string) {
 function GuardrailBadge({ guardrail }: { guardrail: string | null }) {
   if (!guardrail) return null;
   return <Badge variant="secondary" className="text-xs">{guardrail.replace(/_/g, " ")}</Badge>;
+}
+
+/**
+ * What the provider said when a send failed.
+ *
+ * Recorded on every failed action all along and shown nowhere, so a bounced
+ * email or a WhatsApp number that had never joined the sandbox both read as a
+ * bare "Failed". The text is the provider's own, quoted rather than
+ * paraphrased - a merchant forwarding it to Twilio support needs it verbatim.
+ */
+function FailureNote({ entry }: { entry: TimelineEntry }) {
+  if (entry.outcome !== "failed" || !entry.response) return null;
+  return (
+    <div className="mt-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 dark:border-red-900 dark:bg-red-950/40">
+      <TriangleAlertIcon
+        className="mt-0.5 size-3.5 shrink-0 text-red-600 dark:text-red-400"
+        aria-hidden="true"
+      />
+      <div className="min-w-0">
+        <div className="text-xs font-semibold text-red-800 dark:text-red-300">
+          The provider rejected this
+        </div>
+        <p className="mt-0.5 font-mono text-xs break-words text-red-700/90 dark:text-red-400/90">
+          {entry.response}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Timestamp pair: relative for the feel of a live trail, exact for reconciling. */
+function StepTime({ iso }: { iso: string }) {
+  return (
+    <span
+      className="text-muted-foreground ml-auto shrink-0 text-xs tabular-nums"
+      title={shortTime(iso)}
+    >
+      {relativeTime(iso)}
+    </span>
+  );
 }
 
 /** A rounded, iconed chip for an outcome - "Opened, no reply" rather than a bare uppercase word. */
@@ -134,6 +185,8 @@ function EmailAttemptCard({ entry }: { entry: TimelineEntry }) {
           {entry.message}
         </div>
       )}
+      <FailureNote entry={entry} />
+      <SourceTag source={entry.source} />
     </div>
   );
 }
@@ -160,6 +213,8 @@ function VoiceAttemptCard({ entry }: { entry: TimelineEntry }) {
           <span className="whitespace-pre-wrap">{entry.message}</span>
         </div>
       )}
+      <FailureNote entry={entry} />
+      <SourceTag source={entry.source} />
     </div>
   );
 }
@@ -221,9 +276,7 @@ function WhatsAppAttemptCard({ entries }: { entries: TimelineEntry[] }) {
         {anyOutOfWindow && (
           <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>outside window</Badge>
         )}
-        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-          {shortDate(first.created_at)}
-        </span>
+        <StepTime iso={first.created_at} />
       </div>
       <div className="bg-muted/30 mt-3 flex flex-col gap-2 rounded-lg p-3">
         {entries.map((e) => <WhatsAppBubble key={e.id} entry={e} />)}
@@ -256,11 +309,200 @@ function ResolutionCard({ entry }: { entry: TimelineEntry }) {
         <Icon className={cn("size-4 shrink-0", tone === "good" ? "text-emerald-600 dark:text-emerald-400" : tone === "bad" ? "text-red-600 dark:text-red-400" : "text-muted-foreground")} aria-hidden="true" />
         <span className="text-sm font-semibold">{label}</span>
         <GuardrailBadge guardrail={entry.guardrail} />
-        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-          {shortTime(entry.created_at)}
-        </span>
+        <StepTime iso={entry.created_at} />
       </div>
       {entry.rationale && <p className="text-muted-foreground mt-1.5 text-sm">{entry.rationale}</p>}
+      <SourceTag source={entry.source} />
+    </div>
+  );
+}
+
+/**
+ * Who produced this step - the model, or a rule that overrode it.
+ *
+ * The guardrails are the product's central claim, so a trail that showed the
+ * outcome without showing which of the two decided it would be leaving out
+ * the part worth auditing.
+ */
+function SourceTag({ source }: { source: string | null }) {
+  if (!source) return null;
+  const guardrailed = source === "guardrail";
+  return (
+    <div className="text-muted-foreground mt-2 flex items-center gap-1.5 text-xs">
+      {guardrailed ? (
+        <ShieldCheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : (
+        <SparklesIcon className="size-3.5 shrink-0" aria-hidden="true" />
+      )}
+      {guardrailed ? "Decided by a guardrail, not the model" : "Chosen by the agent"}
+    </div>
+  );
+}
+
+/**
+ * The event itself, as step one.
+ *
+ * Without it the story opens mid-sentence: a case the agent escalated
+ * immediately showed a single card explaining the escalation and nothing
+ * about what had failed, for how much, or what Tally made of it.
+ */
+function OriginCard({ row }: { row: BoardRow }) {
+  return (
+    <div className="rounded-xl border p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <TriangleAlertIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+        <span className="text-sm font-semibold">
+          {EVENT_TYPE_LABEL[row.event_type] ?? "Payment failed"}
+        </span>
+        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
+          {shortTime(row.failed_on)}
+        </span>
+      </div>
+      <p className="text-muted-foreground mt-2 text-sm">
+        <strong className="text-foreground tabular-nums">{formatINR(row.amount)}</strong>
+        {" · classified as "}
+        <strong className="text-foreground">{row.reason_label}</strong>
+      </p>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <WorkflowBadge workflow={row.workflow} className="h-[18px] px-1.5 text-[0.7rem]" />
+      </div>
+    </div>
+  );
+}
+
+/** Razorpay's event vocabulary, in the merchant's words. */
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  payment_failed: "Payment failed",
+  subscription_failed: "Subscription charge failed",
+  mandate_retry: "AutoPay mandate failed",
+  cart_abandoned: "Checkout abandoned",
+  receivable_overdue: "Invoice overdue",
+  promise_to_pay: "Promised to pay",
+};
+
+/**
+ * Where the case stands now, when it did not end in a recovery.
+ *
+ * A stopped case previously just ran out of cards, leaving the merchant to
+ * infer from the last one whether anything further would happen.
+ */
+function StoppedBanner({ row }: { row: BoardRow }) {
+  const label = stopReasonLabel(row.stop_reason);
+  const needsHuman = row.status === "needs_human";
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-xl border p-4",
+        needsHuman
+          ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+          : "bg-muted/40",
+      )}
+    >
+      {needsHuman ? (
+        <UserIcon className="size-6 shrink-0 text-red-600 dark:text-red-400" aria-hidden="true" />
+      ) : (
+        <BanIcon className="text-muted-foreground size-6 shrink-0" aria-hidden="true" />
+      )}
+      <div className="min-w-0">
+        <div className={cn("font-semibold", needsHuman && "text-red-800 dark:text-red-300")}>
+          {needsHuman ? "Waiting on you" : "Stopped"}
+        </div>
+        <div
+          className={cn(
+            "text-sm",
+            needsHuman ? "text-red-700/80 dark:text-red-400/80" : "text-muted-foreground",
+          )}
+        >
+          {label ?? "No further automated contact is scheduled."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the agent is waiting for, as the closing step of an open case.
+ *
+ * An open case used to simply run out of cards, which reads identically to
+ * "the agent has given up" - the single most common thing merchants asked
+ * about. Every open case now ends by saying what happens next and when.
+ */
+function PendingCard({ row }: { row: BoardRow }) {
+  const waitingUntil =
+    row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now()
+      ? row.next_attempt_at
+      : null;
+  const snoozed = row.hold_until !== null && Date.parse(row.hold_until) > Date.now();
+  const nextAttemptNo = row.attempts + 1;
+  const isFinal = nextAttemptNo >= row.max_attempts;
+
+  return (
+    <div className="border-primary/30 bg-primary/[0.03] rounded-xl border border-dashed p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <ClockIcon className="text-primary size-4 shrink-0" aria-hidden="true" />
+        <span className="text-sm font-semibold">
+          {row.paused ? "Paused by an admin" : "Planned next"}
+        </span>
+        {waitingUntil && !row.paused && (
+          <span
+            className="text-muted-foreground ml-auto shrink-0 text-xs tabular-nums"
+            title={shortTime(waitingUntil)}
+          >
+            in {formatDuration((Date.parse(waitingUntil) - Date.now()) / 1000)}
+          </span>
+        )}
+      </div>
+
+      {row.paused ? (
+        <p className="text-muted-foreground mt-1.5 text-sm">
+          Nothing is scheduled while this case is paused. Resume it below and the
+          agent picks up where it left off.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-sm">
+            <strong className="text-foreground">
+              Attempt {nextAttemptNo} of {row.max_attempts}
+            </strong>
+            {waitingUntil ? (
+              <>
+                {" · "}
+                <strong className="text-foreground tabular-nums">
+                  {shortTime(waitingUntil)}
+                </strong>
+              </>
+            ) : (
+              " · on the next worker run, within a few minutes"
+            )}
+          </p>
+
+          {waitingUntil && (
+            <p className="text-muted-foreground mt-1 text-sm">
+              {snoozed
+                ? "Snoozed until then by an admin."
+                : "Held until the contact window reopens."}
+            </p>
+          )}
+
+          {/* What it is aiming at. The cause fixes this much - the exact
+              wording and channel are the model's to pick at send time, so
+              they are deliberately not promised here. */}
+          <div className="mt-3 border-t pt-2.5">
+            <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              What the agent will try
+            </div>
+            <p className="text-muted-foreground mt-1 text-sm">{row.reason_remedy}</p>
+          </div>
+
+          {isFinal && (
+            <p className="mt-2.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              Final attempt under this business&rsquo;s cap of {row.max_attempts}. The
+              case stops after it unless you reopen it.
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -332,9 +574,7 @@ function AdminActionCard({ entry }: { entry: TimelineEntry }) {
           <Icon className="size-3" />
           {def?.label ?? entry.admin_action}
         </Badge>
-        <span className="text-muted-foreground ml-auto text-xs tabular-nums">
-          {shortTime(entry.created_at)}
-        </span>
+        <StepTime iso={entry.created_at} />
       </div>
       {entry.rationale && <p className="text-muted-foreground mt-2 text-sm">{entry.rationale}</p>}
     </div>
@@ -349,19 +589,64 @@ function AttemptGroupCard({ group }: { group: AttemptGroup }) {
   return <ResolutionCard entry={group.entry} />;
 }
 
-/** One numbered rail step: a marker connected to the next by a running line. */
+/**
+ * The rail marker's colour, by what the step actually was.
+ *
+ * A rail of identical numbered dots makes a merchant read every card to find
+ * the one that went wrong. Colour carries that at a glance - and never on its
+ * own: each card states its outcome in words too, so the rail is a shortcut
+ * to the story rather than the only place it is told.
+ */
+const STEP_TONE: Record<string, string> = {
+  origin: "border-amber-500 text-amber-600 dark:text-amber-400",
+  email: "border-blue-500 text-blue-600 dark:text-blue-400",
+  whatsapp: "border-emerald-500 text-emerald-600 dark:text-emerald-400",
+  voice: "border-amber-500 text-amber-600 dark:text-amber-400",
+  admin: "border-slate-400 text-slate-600 dark:text-slate-300",
+  resolution: "border-muted-foreground/50 text-muted-foreground",
+  failed: "border-red-500 text-red-600 dark:text-red-400",
+  recovered: "border-emerald-500 text-emerald-600 dark:text-emerald-400",
+  pending: "border-primary/40 text-muted-foreground",
+};
+
+/**
+ * One numbered rail step: a marker connected to the next by a running line.
+ *
+ * Steps fade in staggered by depth, so opening a case plays the story in the
+ * order it happened rather than dumping it. The delay is capped: past a
+ * handful of steps the wait stops reading as motion and starts reading as lag.
+ */
 function TimelineStep({
-  index, isLast, children,
+  index, isLast, tone = "resolution", live = false, children,
 }: {
   index: number;
   isLast: boolean;
+  tone?: keyof typeof STEP_TONE | string;
+  /** The step the case is sitting on right now - pulses, so it reads as ongoing. */
+  live?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex gap-3">
+    <div
+      className="animate-in fade-in slide-in-from-bottom-2 flex gap-3 duration-500 fill-mode-backwards"
+      style={{ animationDelay: `${Math.min(index - 1, 6) * 70}ms` }}
+    >
       <div className="flex flex-col items-center">
-        <span className="border-primary text-primary bg-background z-10 flex size-6 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold tabular-nums">
-          {index}
+        <span className="relative flex shrink-0">
+          {live && (
+            <span
+              className="bg-primary/25 absolute inline-flex size-6 animate-ping rounded-full"
+              aria-hidden="true"
+            />
+          )}
+          <span
+            className={cn(
+              "bg-background relative z-10 flex size-6 items-center justify-center rounded-full border-2 text-[11px] font-bold tabular-nums",
+              STEP_TONE[tone] ?? STEP_TONE.resolution,
+            )}
+          >
+            {index}
+          </span>
         </span>
         {!isLast && <span className="bg-border w-px flex-1" aria-hidden="true" />}
       </div>
@@ -370,14 +655,29 @@ function TimelineStep({
   );
 }
 
+/** The rail tone for one attempt group - failures win over the channel's own. */
+function toneForGroup(group: AttemptGroup): string {
+  if (group.kind === "whatsapp") {
+    return group.entries.some((e) => e.outcome === "failed") ? "failed" : "whatsapp";
+  }
+  if (group.entry.outcome === "failed") return "failed";
+  return group.kind;
+}
+
 /* ── detail panel ────────────────────────────────────────────────────────── */
 
 export function DetailPanel({
-  row, entries, error,
+  row, entries, error, onAction,
 }: {
   row: BoardRow;
   entries: TimelineEntry[] | null;
   error: string | null;
+  /**
+   * Opens the confirm/collect dialog for one override. Optional so the panel
+   * stays renderable read-only; the dialog itself is owned by whoever renders
+   * this, since it also has to merge the updated row back into the board.
+   */
+  onAction?: (action: AdminActionDef) => void;
 }) {
   const sent = entries?.filter((e) => e.in_window !== null) ?? [];
   const outOfWindow = sent.filter((e) => e.in_window === false).length;
@@ -387,7 +687,20 @@ export function DetailPanel({
   // empty gap where the timeline should be.
   const visible = entries?.filter((e) => !e.message?.startsWith(SUMMARY_PREFIX)) ?? [];
   const groups = groupAttempts(visible);
-  const stepCount = groups.length + (row.recovered_at ? 1 : 0);
+  // A dead end that is not a recovery gets a closing step saying so. Statuses
+  // still in play (chasing, waiting on a window) deliberately do not: there
+  // the story is unfinished, and a "stopped" card would misreport it.
+  const showStopped =
+    !row.recovered_at &&
+    ["needs_human", "stopped", "opted_out", "disputed", "written_off"].includes(row.status);
+  // Origin step, the attempts, and always exactly one closing step - resolved,
+  // stopped, or waiting.
+  const stepCount = 2 + groups.length;
+  const actions = availableAdminActions({
+    status: row.status,
+    paused: row.paused,
+    hasPendingStep: hasPendingStep(row),
+  });
   const elapsed =
     row.recovered_at !== null
       ? (Date.parse(row.recovered_at) - Date.parse(row.failed_on)) / 1000
@@ -419,49 +732,85 @@ export function DetailPanel({
         {!entries && !error && (
           <p className="text-muted-foreground p-8 text-center text-sm">Loading the timeline…</p>
         )}
-        {entries && groups.length === 0 && !row.recovered_at && (
-          <div className="text-muted-foreground p-8 text-center text-sm">
-            {row.paused ? (
-              <p>Outreach is paused on this case by an admin.</p>
-            ) : row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now() ? (
-              <>
-                <p>Nothing sent yet.</p>
-                <p className="mt-1">
-                  Next attempt around{" "}
-                  <strong className="text-foreground">{shortTime(row.next_attempt_at)}</strong>
-                  {row.hold_until && Date.parse(row.hold_until) > Date.now()
-                    ? " - snoozed until then by an admin."
-                    : " - most likely waiting for the contact window to open."}
-                </p>
-              </>
-            ) : (
-              <p>
-                Nothing has happened on this event yet. Tally checks for new
-                cases every few minutes, so this should update shortly.
-              </p>
-            )}
-          </div>
-        )}
-
-        {entries && stepCount > 0 && (
+        {entries && (
           <div className="p-4 sm:p-6">
+            {/* Step one is always the webhook itself: when Razorpay told us,
+                what failed, and what Tally made of it. */}
+            <TimelineStep index={1} isLast={false} tone="origin">
+              <OriginCard row={row} />
+            </TimelineStep>
+
             {groups.map((g, i) => (
               <TimelineStep
                 key={g.kind === "whatsapp" ? g.entries[0].id : g.entry.id}
-                index={i + 1}
-                isLast={i === groups.length - 1 && !row.recovered_at}
+                index={i + 2}
+                isLast={false}
+                tone={toneForGroup(g)}
               >
                 <AttemptGroupCard group={g} />
               </TimelineStep>
             ))}
+
             {row.recovered_at && (
-              <TimelineStep index={groups.length + 1} isLast>
+              <TimelineStep index={groups.length + 2} isLast tone="recovered">
                 <ResolvedBanner row={row} />
+              </TimelineStep>
+            )}
+
+            {/* Where it stands now, when it did not end in a recovery. */}
+            {showStopped && (
+              <TimelineStep
+                index={groups.length + 2}
+                isLast
+                tone={row.status === "needs_human" ? "failed" : "resolution"}
+              >
+                <StoppedBanner row={row} />
+              </TimelineStep>
+            )}
+
+            {/* Still in play: say what the agent is waiting for, so an open
+                case never just runs out of cards. The marker pulses, because
+                this is the one step that has not finished happening. */}
+            {!row.recovered_at && !showStopped && (
+              <TimelineStep index={groups.length + 2} isLast tone="pending" live={!row.paused}>
+                <PendingCard row={row} />
               </TimelineStep>
             )}
           </div>
         )}
       </div>
+
+      {/* The decisions a merchant can take on this case, where they are
+          reading about it - rather than only behind the row's kebab menu,
+          which means closing the story to act on it. */}
+      {onAction && actions.length > 0 && (
+        <>
+          <Separator />
+          <div className="shrink-0 p-3 sm:px-4">
+            <div className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+              Change the plan
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+            {actions.map((action) => {
+              const Icon = ADMIN_ACTION_ICON[action.id];
+              return (
+                <Button
+                  key={action.id}
+                  variant={action.destructive ? "ghost" : "outline"}
+                  size="sm"
+                  className={cn("h-7 gap-1.5 text-xs", action.destructive && "text-destructive")}
+                  onClick={() => onAction(action)}
+                  title={action.description}
+                >
+                  <Icon className="size-3.5" />
+                  {action.label}
+                </Button>
+              );
+            })}
+            </div>
+          </div>
+        </>
+      )}
 
       <Separator />
       <div className="text-muted-foreground shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 p-3 text-xs sm:px-4">
