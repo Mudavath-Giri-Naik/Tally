@@ -18,11 +18,13 @@ import {
   DecisionSchema,
   ReplySchema,
   SummarySchema,
+  CommandSchema,
   TransientProviderError,
   withRetry,
   type AgentDecision,
   type AgentReply,
   type AgentSummary,
+  type AgentCommand,
   type DecisionProvider,
 } from "./index";
 import type { z } from "zod";
@@ -87,6 +89,10 @@ export class AnthropicProvider implements DecisionProvider {
 
   async summarise(system: string, user: string): Promise<AgentSummary> {
     return (await this.parse(SummarySchema, system, user)) as AgentSummary;
+  }
+
+  async command(system: string, user: string): Promise<AgentCommand> {
+    return (await this.parse(CommandSchema, system, user)) as AgentCommand;
   }
 
   /** The retry-wrapped structured call every method here shares. */

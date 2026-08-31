@@ -15,11 +15,13 @@ import {
   DecisionSchema,
   ReplySchema,
   SummarySchema,
+  CommandSchema,
   TransientProviderError,
   withRetry,
   type AgentDecision,
   type AgentReply,
   type AgentSummary,
+  type AgentCommand,
   type DecisionProvider,
 } from "./index";
 
@@ -88,6 +90,52 @@ const REPLY_SCHEMA = {
     },
   },
   required: ["message", "needs_human", "topic"],
+} as const;
+
+const COMMAND_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    reply: {
+      type: "STRING",
+      description:
+        "What to say back to the admin. Always populated, even when no action is taken.",
+    },
+    action: {
+      type: "STRING",
+      enum: [
+        "none",
+        "send_whatsapp",
+        "send_email",
+        "place_call",
+        "set_contact_window",
+        "mark_paid",
+        "pause_outreach",
+        "resume_outreach",
+        "snooze",
+        "trigger_next_step",
+        "escalate_human",
+        "opt_out",
+        "reopen_case",
+        "write_off",
+        "flag_disputed",
+      ],
+      description: "The single action to carry out, or 'none' to just answer.",
+    },
+    message: {
+      type: "STRING",
+      nullable: true,
+      description: "The body to send, when the action is a send or a call.",
+    },
+    window_start: { type: "STRING", nullable: true, description: "HH:MM, 24-hour." },
+    window_end: { type: "STRING", nullable: true, description: "HH:MM, 24-hour." },
+    snooze_until: { type: "STRING", nullable: true, description: "YYYY-MM-DD." },
+    reason: {
+      type: "STRING",
+      nullable: true,
+      description: "Short note recorded in the audit trail.",
+    },
+  },
+  required: ["reply", "action"],
 } as const;
 
 const SUMMARY_SCHEMA = {
@@ -180,6 +228,19 @@ export class GeminiProvider implements DecisionProvider {
     if (!result.success) {
       throw new Error(
         `Gemini reply failed validation: ${result.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; ")}`,
+      );
+    }
+    return result.data;
+  }
+
+  async command(system: string, user: string): Promise<AgentCommand> {
+    const parsed = await this.generate(system, user, COMMAND_SCHEMA, 0.2, 4096);
+    const result = CommandSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(
+        `Gemini command failed validation: ${result.error.issues
           .map((i) => `${i.path.join(".")}: ${i.message}`)
           .join("; ")}`,
       );

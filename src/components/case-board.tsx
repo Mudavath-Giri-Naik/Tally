@@ -66,7 +66,7 @@ import {
   shortTime,
   stopReasonLabel,
 } from "@/components/case-parts";
-import { DetailPanel } from "@/components/case-detail";
+import { DetailPanel, type AdminChatTurn } from "@/components/case-detail";
 import { AdminActionDialog, RowActionsMenu } from "@/components/case-actions";
 
 const PAGE_SIZE = 8;
@@ -88,6 +88,11 @@ export function CaseBoard({
   const [timelineError, setTimelineError] = useState<string | null>(null);
   const [overrideTarget, setOverrideTarget] =
     useState<{ row: BoardRow; action: AdminActionDef } | null>(null);
+  // Chat is kept per case rather than globally: the conversation is about
+  // this case, and carrying it across to the next row would read as the agent
+  // confusing two customers.
+  const [chats, setChats] = useState<Record<string, AdminChatTurn[]>>({});
+  const [asking, setAsking] = useState(false);
 
   const { isMobile, setOpen: setSidebarOpen } = useSidebar();
 
@@ -226,6 +231,87 @@ export function CaseBoard({
       }
     },
     [slug, openEvent, loadTimeline, setData],
+  );
+
+  /**
+   * Ask the agent about the open case, and fold whatever it did back in.
+   *
+   * The reply, the row and the timeline all move together: an instruction
+   * that sent a message has changed all three, and refreshing them
+   * separately would show the confirmation before the message it confirms.
+   */
+  const askAgent = useCallback(
+    async (question: string) => {
+      if (!openEvent) return;
+      const at = new Date().toISOString();
+      setChats((c) => ({
+        ...c,
+        [openEvent]: [
+          ...(c[openEvent] ?? []),
+          { id: `q-${at}`, from: "you", text: question, at },
+        ],
+      }));
+      setAsking(true);
+
+      try {
+        const res = await fetch(`/api/dashboard/${slug}/events/${openEvent}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+        const json = (await res.json()) as {
+          reply?: string;
+          action?: string;
+          performed?: boolean;
+          error?: string | null;
+          row?: BoardRow;
+        };
+
+        setChats((c) => ({
+          ...c,
+          [openEvent]: [
+            ...(c[openEvent] ?? []),
+            {
+              id: `a-${Date.now()}`,
+              from: "agent",
+              text: json.reply ?? "I could not answer that one.",
+              action: json.action ?? null,
+              performed: json.performed ?? false,
+              error: json.error ?? null,
+              at: new Date().toISOString(),
+            },
+          ],
+        }));
+
+        if (json.row) {
+          const updated = json.row;
+          setData((d) => ({
+            ...d,
+            rows: d.rows.map((r) => (r.event_id === updated.event_id ? updated : r)),
+          }));
+        }
+        // Anything it actually did leaves a row in the audit trail, so the
+        // story above the chat has to be re-read for the chat to make sense.
+        if (json.performed) await loadTimeline(openEvent);
+      } catch {
+        setChats((c) => ({
+          ...c,
+          [openEvent]: [
+            ...(c[openEvent] ?? []),
+            {
+              id: `a-${Date.now()}`,
+              from: "agent",
+              text: "I could not reach the server.",
+              error: "Check your connection and ask again.",
+              at: new Date().toISOString(),
+            },
+          ],
+        }));
+      } finally {
+        setAsking(false);
+      }
+    },
+    [slug, openEvent, setData, loadTimeline],
   );
 
   return (
@@ -484,6 +570,9 @@ export function CaseBoard({
             entries={timeline}
             error={timelineError}
             onAction={(action) => setOverrideTarget({ row: openRow, action })}
+            chat={chats[openRow.event_id] ?? []}
+            asking={asking}
+            onAsk={askAgent}
           />
         </div>
       )}

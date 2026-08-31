@@ -48,6 +48,46 @@ export const ReplySchema = z.object({
 
 export type AgentReply = z.infer<typeof ReplySchema>;
 
+/**
+ * What the agent understood an admin to be asking for, in the panel's chat.
+ *
+ * Deliberately one action per turn rather than a tool-calling loop: an admin
+ * saying "message them now" wants that done and confirmed, not a chain of
+ * calls to audit afterwards. `reply` is always populated - even a refusal or
+ * a plain question gets an answer, so the box never goes quiet.
+ */
+export const CommandSchema = z.object({
+  reply: z.string().min(1),
+  action: z.enum([
+    "none",
+    "send_whatsapp",
+    "send_email",
+    "place_call",
+    "set_contact_window",
+    "mark_paid",
+    "pause_outreach",
+    "resume_outreach",
+    "snooze",
+    "trigger_next_step",
+    "escalate_human",
+    "opt_out",
+    "reopen_case",
+    "write_off",
+    "flag_disputed",
+  ]),
+  /** The body to send, when the action is a send. */
+  message: z.string().nullable(),
+  /** "HH:MM" 24-hour, for set_contact_window. */
+  window_start: z.string().nullable(),
+  window_end: z.string().nullable(),
+  /** "YYYY-MM-DD", for snooze. */
+  snooze_until: z.string().nullable(),
+  /** Free text recorded in the audit trail for the admin actions that take one. */
+  reason: z.string().nullable(),
+});
+
+export type AgentCommand = z.infer<typeof CommandSchema>;
+
 /** A one-line summary of a finished conversation, for the audit trail. */
 export const SummarySchema = z.object({
   summary: z.string().min(1),
@@ -65,6 +105,8 @@ export interface DecisionProvider {
   reply(system: string, user: string): Promise<AgentReply>;
   /** What that conversation amounted to, once it has gone quiet. */
   summarise(system: string, user: string): Promise<AgentSummary>;
+  /** What an admin asked for in the case panel, and what to do about it. */
+  command(system: string, user: string): Promise<AgentCommand>;
 }
 
 export type ProviderName = "anthropic" | "gemini";

@@ -11,6 +11,7 @@
  * Extracted from the Overview when the table moved to the Customers page.
  * It is pure presentation: the timeline is fetched by whoever renders it.
  */
+import { useState } from "react";
 import Image from "next/image";
 import {
   CheckCheckIcon,
@@ -53,6 +54,7 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -188,6 +190,156 @@ function StepActions({
           </Button>
         );
       })}
+    </div>
+  );
+}
+
+/* ── talking to the agent ────────────────────────────────────────────────── */
+
+export interface AdminChatTurn {
+  id: string;
+  /** "you" is the admin's own line; "agent" is what came back. */
+  from: "you" | "agent";
+  text: string;
+  /** What the agent actually did, when it did something. */
+  action?: string | null;
+  performed?: boolean;
+  error?: string | null;
+  at: string;
+}
+
+/** The admin action ids, in the agent's vocabulary, as something readable. */
+const CHAT_ACTION_LABEL: Record<string, string> = {
+  send_whatsapp: "Sent a WhatsApp message",
+  send_email: "Sent an email",
+  place_call: "Placed a call",
+  set_contact_window: "Updated the contact window",
+  mark_paid: "Marked as paid",
+  pause_outreach: "Paused outreach",
+  resume_outreach: "Resumed outreach",
+  snooze: "Snoozed the case",
+  trigger_next_step: "Triggered the next step",
+  escalate_human: "Escalated to a human",
+  opt_out: "Opted the customer out",
+  reopen_case: "Reopened the case",
+  write_off: "Wrote the case off",
+  flag_disputed: "Flagged as disputed",
+};
+
+function ChatTurn({ turn }: { turn: AdminChatTurn }) {
+  const mine = turn.from === "you";
+  const label = turn.action ? CHAT_ACTION_LABEL[turn.action] : null;
+
+  return (
+    <div
+      className={cn(
+        "animate-in fade-in slide-in-from-bottom-1 flex duration-300",
+        mine ? "justify-end" : "justify-start",
+      )}
+    >
+      <div
+        className={cn(
+          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
+          mine
+            ? "bg-primary text-primary-foreground rounded-br-sm"
+            : "bg-muted rounded-bl-sm",
+        )}
+      >
+        <span className="whitespace-pre-wrap">{turn.text}</span>
+
+        {/* What it did, when it did something - the confirmation is the point,
+            not decoration: an admin who said "message them now" needs to see
+            that it went, not just that the agent replied agreeably. */}
+        {label && turn.performed && (
+          <span className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <CircleCheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
+            {label}
+          </span>
+        )}
+
+        {turn.error && (
+          <span className="mt-2 flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
+            <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            {turn.error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Where an admin talks to the agent.
+ *
+ * Pinned below the scroll rather than inside it: an instruction is something
+ * you give while looking at the case, and having to scroll to the end of the
+ * history to find the box would make the long cases the hardest to act on.
+ */
+function ChatBox({
+  asking, onAsk,
+}: {
+  asking: boolean;
+  onAsk: (question: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function submit() {
+    const q = draft.trim();
+    if (!q || asking) return;
+    setDraft("");
+    onAsk(q);
+  }
+
+  return (
+    <div className="shrink-0 border-t p-3 sm:px-4">
+      <div className="flex items-end gap-2">
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter sends, shift+enter breaks the line - the convention every
+            // chat box has trained people into.
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="Ask the agent, or tell it what to do…"
+          rows={1}
+          disabled={asking}
+          className="max-h-24 min-h-9 resize-none py-2 text-sm"
+          aria-label="Ask the agent about this case"
+        />
+        <Button
+          size="icon"
+          className="size-9 shrink-0"
+          onClick={submit}
+          disabled={asking || draft.trim().length === 0}
+          aria-label="Send"
+        >
+          <SendIcon className="size-4" />
+        </Button>
+      </div>
+      <p className="text-muted-foreground mt-1.5 text-[0.7rem]">
+        It can send, call, snooze, or change this business&rsquo;s settings - and
+        will say so when it does.
+      </p>
+    </div>
+  );
+}
+
+/** Three dots while the agent is working, so the box is never silently busy. */
+function ThinkingBubble() {
+  return (
+    <div className="animate-in fade-in flex justify-start duration-200">
+      <div className="bg-muted text-muted-foreground flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-sm">
+        <SparklesIcon className="size-3.5 shrink-0 animate-pulse" aria-hidden="true" />
+        <span className="flex gap-1">
+          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:0ms]" />
+          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:150ms]" />
+          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:300ms]" />
+        </span>
+      </div>
     </div>
   );
 }
@@ -459,6 +611,11 @@ function StoppedBanner({
   row: BoardRow;
   actions: AdminActionDef[];
   onAction?: (action: AdminActionDef) => void;
+  /** The conversation with the agent about this case, oldest first. */
+  chat?: AdminChatTurn[];
+  /** True while a question is in flight, so the box can show it thinking. */
+  asking?: boolean;
+  onAsk?: (question: string) => void;
 }) {
   const label = stopReasonLabel(row.stop_reason);
   const needsHuman = row.status === "needs_human";
@@ -509,6 +666,11 @@ function PendingCard({
   row: BoardRow;
   actions: AdminActionDef[];
   onAction?: (action: AdminActionDef) => void;
+  /** The conversation with the agent about this case, oldest first. */
+  chat?: AdminChatTurn[];
+  /** True while a question is in flight, so the box can show it thinking. */
+  asking?: boolean;
+  onAsk?: (question: string) => void;
 }) {
   const waitingUntil =
     row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now()
@@ -756,7 +918,7 @@ function toneForGroup(group: AttemptGroup): string {
 /* ── detail panel ────────────────────────────────────────────────────────── */
 
 export function DetailPanel({
-  row, entries, error, onAction,
+  row, entries, error, onAction, chat = [], asking = false, onAsk,
 }: {
   row: BoardRow;
   entries: TimelineEntry[] | null;
@@ -767,6 +929,11 @@ export function DetailPanel({
    * this, since it also has to merge the updated row back into the board.
    */
   onAction?: (action: AdminActionDef) => void;
+  /** The conversation with the agent about this case, oldest first. */
+  chat?: AdminChatTurn[];
+  /** True while a question is in flight, so the box can show it thinking. */
+  asking?: boolean;
+  onAsk?: (question: string) => void;
 }) {
   const sent = entries?.filter((e) => e.in_window !== null) ?? [];
   const outOfWindow = sent.filter((e) => e.in_window === false).length;
@@ -812,11 +979,41 @@ export function DetailPanel({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 border-b px-3 py-2 sm:px-4">
+      {/* Badges and the running totals share one row. They were a header row
+          and a footer strip before, which spent two bands of height on what
+          reads perfectly well as one line. */}
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b px-3 py-2 sm:px-4">
         <WorkflowBadge workflow={row.workflow} className="h-[18px] px-1.5 text-[0.7rem]" />
         <Badge variant="secondary" className="h-[18px] px-1.5 text-[0.7rem]">{row.reason_label}</Badge>
         <StatusBadge status={row.status} className="h-[18px] px-1.5 text-[0.7rem]" />
         <ChannelMark channel={row.last_channel} size={16} />
+        <span className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[0.7rem] tabular-nums">
+          <span title={row.status === "recovered" ? "Time to recovery" : "Open for"}>
+            {formatDuration(elapsed)}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span title="Attempts used">
+            {row.attempts}/{row.max_attempts}
+          </span>
+          <span aria-hidden="true">·</span>
+          {sent.length === 0 ? (
+            <span title="Nothing sent yet">none sent</span>
+          ) : outOfWindow === 0 ? (
+            <span
+              className="font-semibold text-emerald-600 dark:text-emerald-400"
+              title="All messages landed inside the contact window"
+            >
+              {sent.length}/{sent.length} in window
+            </span>
+          ) : (
+            <span
+              className="font-semibold text-amber-600 dark:text-amber-400"
+              title="Messages sent outside the contact window"
+            >
+              {outOfWindow}/{sent.length} outside
+            </span>
+          )}
+        </span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -868,34 +1065,23 @@ export function DetailPanel({
                 <PendingCard row={row} actions={actions} onAction={onAction} />
               </TimelineStep>
             )}
+
+            {/* The conversation with the agent continues the same column,
+                below the story rather than in a panel of its own - what was
+                asked about this case is part of the case. */}
+            {(chat.length > 0 || asking) && (
+              <div className="mt-2 flex flex-col gap-2 border-t pt-4">
+                {chat.map((turn) => (
+                  <ChatTurn key={turn.id} turn={turn} />
+                ))}
+                {asking && <ThinkingBubble />}
+              </div>
+            )}
           </div>
         )}
       </div>
 
 
-      <Separator />
-      <div className="text-muted-foreground shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 p-3 text-xs sm:px-4">
-        <span>
-          {row.status === "recovered" ? "Recovered in " : "Open "}
-          <strong className="text-foreground tabular-nums">{formatDuration(elapsed)}</strong>
-        </span>
-        <span aria-hidden="true">·</span>
-        <span className="tabular-nums">
-          <strong className="text-foreground">{row.attempts}</strong>/{row.max_attempts} attempts
-        </span>
-        <span aria-hidden="true">·</span>
-        {sent.length === 0 ? (
-          "nothing sent"
-        ) : outOfWindow === 0 ? (
-          <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {sent.length}/{sent.length} in window
-          </span>
-        ) : (
-          <span className="font-semibold tabular-nums text-amber-600 dark:text-amber-400">
-            {outOfWindow}/{sent.length} outside window
-          </span>
-        )}
-      </div>
     </Card>
   );
 }
