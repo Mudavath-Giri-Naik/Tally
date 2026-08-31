@@ -813,7 +813,11 @@ create or replace function merchant_board(
   -- Why the agent stopped, carried to the table so "Needs human" can say
   -- which kind. Fraud, three failed cycles and an admin escalation all land
   -- in that one bucket and all want a different response from the merchant.
-  stop_reason    text
+  stop_reason    text,
+  -- Razorpay's own order id. Two failures for the same customer and amount
+  -- are otherwise indistinguishable on screen, and "which order was this?"
+  -- is the first thing anyone asks.
+  order_id       text
 )
 language sql stable
 as $fn$
@@ -855,7 +859,11 @@ as $fn$
   )
   select e.id,
          c.id,
-         c.name,
+         -- The name given on this order, falling back to the customer record.
+         -- The record holds one name and it is the latest, so joining it
+         -- alone made every past case re-label itself when someone reordered
+         -- under a different name.
+         coalesce(e.metadata->>'customer_name', c.name),
          c.email,
          c.phone,
          e.amount,
@@ -889,7 +897,8 @@ as $fn$
          e.paused,
          e.hold_until,
          e.next_attempt_at,
-         e.stop_reason
+         e.stop_reason,
+         e.metadata->>'order_id'
   from events e
   join merchants m on m.id = e.merchant_id
   left join customers c on c.id = e.customer_id

@@ -189,6 +189,30 @@ export async function recentlySentFor(
  * sandbox the `To` number identifies nobody, so this returns every match and
  * the caller decides - see the opt-out handling in the inbound route.
  */
+/**
+ * The customer behind a payment, by the same identity rule ingestion uses:
+ * email or phone, scoped to the merchant. Used to credit a payment to a case
+ * when the order id cannot, which is what a retried checkout produces.
+ */
+export async function findCustomerByContact(
+  merchantId: string,
+  contact: { email?: string | null; phone?: string | null },
+): Promise<string | null> {
+  const filters: string[] = [];
+  if (contact.email) filters.push(`email.ilike.${contact.email}`);
+  if (contact.phone) filters.push(`phone.eq.${contact.phone}`);
+  if (filters.length === 0) return null;
+
+  const { data, error } = await db()
+    .from("customers")
+    .select("id")
+    .eq("merchant_id", merchantId)
+    .or(filters.join(","))
+    .limit(1);
+  if (error) throw new Error(`Could not find that customer: ${error.message}`);
+  return (data?.[0] as { id: string } | undefined)?.id ?? null;
+}
+
 export async function findCustomersByPhone(
   phone: string,
   merchantId?: string,
@@ -516,7 +540,12 @@ export async function applyAdminOverride(input: AdminOverrideInput): Promise<Boa
  */
 export async function markRecoveredByReference(
   merchantId: string,
-  refs: { orderId?: string | null; subscriptionId?: string | null },
+  refs: {
+    orderId?: string | null;
+    subscriptionId?: string | null;
+    /** Resolved from the paying customer, for the fallback below. */
+    customerId?: string | null;
+  },
   amount: number | null,
 ): Promise<RecoveryEvent[]> {
   const recovered: RecoveryEvent[] = [];
@@ -542,7 +571,38 @@ export async function markRecoveredByReference(
     }
     recovered.push(...((data ?? []) as RecoveryEvent[]));
   }
-  return recovered;
+
+  if (recovered.length > 0) return recovered;
+
+  /**
+   * Nothing matched by reference, which is the normal case for a customer who
+   * paid by starting again: a fresh checkout is a fresh Razorpay order, so
+   * the id on the payment that succeeded is not the one on the case still
+   * open. Left there, the recovered money is never credited to the case and
+   * the agent keeps chasing someone who has already paid.
+   *
+   * The fallback is deliberately narrow - same merchant, same customer, the
+   * exact same amount, and only a case still open. Matching on amount alone,
+   * or across customers, would close cases that were never paid.
+   */
+  if (!refs.customerId || amount === null) return recovered;
+
+  const { data, error } = await db()
+    .from("events")
+    .update({
+      status: "recovered",
+      recovered_amount: amount,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("merchant_id", merchantId)
+    .eq("customer_id", refs.customerId)
+    .eq("amount", amount)
+    .in("status", ["queued", "processing"])
+    .select();
+  if (error) {
+    throw new Error(`Could not close the customer's open case: ${error.message}`);
+  }
+  return (data ?? []) as RecoveryEvent[];
 }
 
 export async function listEvents(

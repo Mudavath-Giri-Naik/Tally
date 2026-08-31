@@ -46,18 +46,27 @@ const EVENT_TYPE_MAP: Record<string, EventType> = {
 export const RECOVERY_CONFIRMATION_EVENTS = new Set([
   "order.paid",
   "payment.captured",
+  // Authorisation is the moment the money is committed; capture follows it.
+  // Left out, it fell through to the catch-all below and was recorded as a
+  // *failed* payment with no stated cause - a successful retry appearing on
+  // the board as a second, broken-looking case.
+  "payment.authorized",
   "subscription.charged",
   "invoice.paid",
 ]);
 
+/**
+ * Only the events Tally actually understands.
+ *
+ * This used to accept anything beginning "payment.", "subscription." or
+ * "invoice." and hand it to normalise(), which defaults an unrecognised
+ * event to payment_failed. So every payment.authorized, payment.pending or
+ * dispute notification became a fabricated failed payment with reason
+ * "unknown" - the comment above already said anything else is acknowledged
+ * and dropped, and this is the code finally agreeing with it.
+ */
 export function isSupportedEvent(event: string): boolean {
-  return (
-    event in EVENT_TYPE_MAP ||
-    RECOVERY_CONFIRMATION_EVENTS.has(event) ||
-    event.startsWith("payment.") ||
-    event.startsWith("subscription.") ||
-    event.startsWith("invoice.")
-  );
+  return event in EVENT_TYPE_MAP || RECOVERY_CONFIRMATION_EVENTS.has(event);
 }
 
 function str(v: unknown): string | null {
@@ -218,6 +227,10 @@ export function normalise(hook: RazorpayWebhook): NormalisedEvent | null {
       invoice_id: event.startsWith("invoice.") ? str(entity.id) : null,
       method,
       international: payment.international === true,
+      // The name given on this order specifically. The customer record holds
+      // one name and it is the latest, so without this every past case on the
+      // board silently re-labels itself when someone reorders under another.
+      customer_name: contact.name,
       ...errorSurface,
     },
   };

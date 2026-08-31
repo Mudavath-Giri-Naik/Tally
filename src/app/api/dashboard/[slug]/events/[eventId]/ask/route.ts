@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server";
 import { resolveMerchant } from "@/lib/merchants";
 import { getCustomer } from "@/lib/events";
-import { boardRowForEvent, eventTimeline } from "@/lib/board";
+import { boardRowForEvent, eventTimeline, boardRows } from "@/lib/board";
 import { askAgent, explainFailure } from "@/lib/agent/admin-chat";
 
 export const runtime = "nodejs";
@@ -62,16 +62,28 @@ export async function POST(
   }
 
   try {
-    const [customer, timeline] = await Promise.all([
+    const [customer, timeline, all] = await Promise.all([
       getCustomer(row.customer_id),
       eventTimeline(merchant.id, eventId).catch(() => []),
+      // The last 90 days of this merchant's board, filtered to this customer
+      // below: "has she paid anything?" and "is this the third time?" are
+      // questions about the person, not about the one case on screen.
+      boardRows(
+        merchant.id,
+        new Date(Date.now() - 90 * 86_400_000).toISOString(),
+      ).catch(() => []),
     ]);
+
+    const siblings = all.filter(
+      (r) => r.customer_id && r.customer_id === row.customer_id && r.event_id !== eventId,
+    );
 
     const result = await askAgent({
       merchant,
       row,
       customer,
       timeline,
+      siblings,
       question: question.trim(),
     });
 

@@ -18,7 +18,12 @@ import {
   RECOVERY_CONFIRMATION_EVENTS,
   type RazorpayWebhook,
 } from "@/lib/razorpay";
-import { ingestEvent, markRecoveredByReference } from "@/lib/events";
+import {
+  ingestEvent,
+  markRecoveredByReference,
+  findCustomerByContact,
+} from "@/lib/events";
+import { normalisePhone } from "@/lib/razorpay";
 
 export const runtime = "nodejs";
 // Never cached, never statically analysed - this is a pure side-effect route.
@@ -90,11 +95,20 @@ export async function POST(
         {};
       const amount =
         typeof entity.amount === "number" ? (entity.amount as number) : null;
+      // Resolved so a payment that cannot be matched by order id can still
+      // be credited to that customer's open case - a retried checkout is a
+      // new Razorpay order, so the reference never matches the case it paid.
+      const customerId = await findCustomerByContact(merchant.id, {
+        email: (entity.email ?? null) as string | null,
+        phone: normalisePhone((entity.contact ?? null) as string | null),
+      }).catch(() => null);
+
       const recovered = await markRecoveredByReference(
         merchant.id,
         {
           orderId: (entity.order_id ?? entity.id) as string | null,
           subscriptionId: (entity.subscription_id ?? null) as string | null,
+          customerId,
         },
         amount,
       );

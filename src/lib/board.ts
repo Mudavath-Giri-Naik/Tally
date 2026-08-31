@@ -117,6 +117,8 @@ export interface BoardRow {
    * alike, and those want different responses from the merchant.
    */
   stop_reason: string | null;
+  /** Razorpay's order id, so two identical-looking cases can be told apart. */
+  order_id: string | null;
 }
 
 
@@ -210,6 +212,7 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     hold_until: (r.hold_until as string) ?? null,
     next_attempt_at: (r.next_attempt_at as string) ?? null,
     stop_reason: (r.stop_reason as string) ?? null,
+    order_id: (r.order_id as string) ?? null,
   };
 }
 

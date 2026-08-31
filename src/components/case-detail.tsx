@@ -595,6 +595,14 @@ function OriginCard({ row }: { row: BoardRow }) {
         {" · classified as "}
         <strong className="text-foreground">{row.reason_label}</strong>
       </p>
+      {/* Two failures from the same customer for the same amount are otherwise
+          indistinguishable here, and "which order was this?" is the first
+          thing anyone asks of a case they are about to act on. */}
+      {row.order_id && (
+        <p className="text-muted-foreground mt-1 font-mono text-xs break-all">
+          {row.order_id}
+        </p>
+      )}
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <WorkflowBadge workflow={row.workflow} className="h-[18px] px-1.5 text-[0.7rem]" />
       </div>

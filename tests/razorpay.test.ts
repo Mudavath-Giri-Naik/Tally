@@ -4,6 +4,7 @@ import {
   normalise,
   normalisePhone,
   isSupportedEvent,
+  RECOVERY_CONFIRMATION_EVENTS,
   retryLinkReference,
   RAZORPAY_REFERENCE_ID_MAX,
 } from "../src/lib/razorpay";
@@ -248,5 +249,55 @@ describe("retry link reference id", () => {
     assert.notEqual(retryLinkReference(a, 0), retryLinkReference(b, 0));
     // Stable for the same input, so a worker retry reuses the same link.
     assert.equal(retryLinkReference(a, 2), retryLinkReference(a, 2));
+  });
+});
+
+describe("success events must never become failures", () => {
+  test("payment.authorized is a confirmation, not a failed payment", () => {
+    // This exact hook created a second, broken-looking case on the board:
+    // it fell through a "payment.*" catch-all into normalise(), which
+    // defaults an unrecognised event to payment_failed with no cause.
+    assert.equal(RECOVERY_CONFIRMATION_EVENTS.has("payment.authorized"), true);
+  });
+
+  test("an unrecognised payment event is dropped, not invented into a failure", () => {
+    for (const e of [
+      "payment.pending",
+      "payment.dispute.created",
+      "subscription.updated",
+      "invoice.partially_paid",
+    ]) {
+      assert.equal(isSupportedEvent(e), false, `${e} must not be acted on`);
+    }
+  });
+
+  test("the events Tally does act on are still supported", () => {
+    for (const e of [
+      "payment.failed",
+      "order.paid",
+      "payment.captured",
+      "subscription.halted",
+      "invoice.expired",
+    ]) {
+      assert.equal(isSupportedEvent(e), true, `${e} must still be handled`);
+    }
+  });
+
+  test("the name given on an order is kept with that order", () => {
+    // The customer record holds one name and it is the latest, so without
+    // this every past case re-labels itself when someone reorders.
+    const hook = {
+      event: "payment.failed",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_N1",
+            error_reason: "payment_failed",
+            notes: { customer_name: "Jimmy" },
+          },
+        },
+      },
+    };
+    assert.equal(normalise(hook)!.metadata.customer_name, "Jimmy");
   });
 });

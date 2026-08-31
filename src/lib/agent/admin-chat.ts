@@ -208,9 +208,10 @@ function userPrompt(input: {
   row: BoardRow;
   customer: Customer | null;
   timeline: TimelineEntry[];
+  siblings?: BoardRow[];
   question: string;
 }): string {
-  const { merchant, row, customer, timeline, question } = input;
+  const { merchant, row, customer, timeline, siblings = [], question } = input;
   const profile = profileFor(row.reason);
   const { events, conversation } = splitHistory(timeline);
 
@@ -226,6 +227,7 @@ function userPrompt(input: {
     `Opted out: ${customer?.opted_out ? "YES - must not be contacted" : "no"}`,
     "",
     `Case: ${row.event_type}, ${row.reason} (${row.reason_label})`,
+    row.order_id ? `Order: ${row.order_id}` : "",
     `What that cause calls for: ${profile.remedy}`,
     `Amount: ${row.amount ?? 0} paise | Status: ${row.status}`,
     `Attempts used: ${row.attempts} of ${row.max_attempts}`,
@@ -416,6 +418,7 @@ export async function askAgent(input: {
   row: BoardRow;
   customer: Customer | null;
   timeline: TimelineEntry[];
+  siblings?: BoardRow[];
   question: string;
 }): Promise<AdminChatResult> {
   // Written before the model is called, so a question survives a provider
@@ -448,6 +451,7 @@ async function respond(input: {
   row: BoardRow;
   customer: Customer | null;
   timeline: TimelineEntry[];
+  siblings?: BoardRow[];
   question: string;
 }): Promise<AdminChatResult> {
   const provider = await getProvider();
