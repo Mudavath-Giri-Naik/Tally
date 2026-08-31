@@ -300,4 +300,25 @@ describe("success events must never become failures", () => {
     };
     assert.equal(normalise(hook)!.metadata.customer_name, "Jimmy");
   });
+
+  test("the contact details given on an order are kept with that order", () => {
+    // Identity is still shared - one email or phone is one customer - but the
+    // board must show what this order carried, not the newest details on the
+    // record, or every past case re-labels itself on the next order.
+    const n = normalise(
+      paymentFailed({ email: "jimmy@example.com", contact: "9876500011" }),
+    )!;
+    assert.equal(n.metadata.customer_email, "jimmy@example.com");
+    assert.equal(n.metadata.customer_phone, "+919876500011");
+  });
+
+  test("an order with no contact details stores nothing rather than a blank", () => {
+    const hook = {
+      event: "payment.failed",
+      payload: { payment: { entity: { id: "pay_Z", error_reason: "card_expired" } } },
+    };
+    const n = normalise(hook)!;
+    assert.equal(n.metadata.customer_email, null);
+    assert.equal(n.metadata.customer_phone, null);
+  });
 });

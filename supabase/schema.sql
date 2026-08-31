@@ -864,8 +864,12 @@ as $fn$
          -- alone made every past case re-label itself when someone reordered
          -- under a different name.
          coalesce(e.metadata->>'customer_name', c.name),
-         c.email,
-         c.phone,
+         -- Same reasoning as the name: what was given on this order, falling
+         -- back to the customer record. Identity is still shared - one email
+         -- or phone is one customer - but the board shows the details that
+         -- order actually carried rather than the most recent ones.
+         coalesce(e.metadata->>'customer_email', c.email),
+         coalesce(e.metadata->>'customer_phone', c.phone),
          e.amount,
          coalesce(e.reason, 'unknown'),
          case

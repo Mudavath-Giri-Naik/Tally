@@ -483,14 +483,31 @@ export function CaseBoard({
                     )}
                   >
                     <TableCell>
+                      {/* Under the name rather than as two more columns: the
+                          table is already nine wide, and these are read as
+                          part of who the row is, not compared down a column.
+                          They are this order's details, not the customer
+                          record's latest - the same reason the name is. */}
                       <div className="flex items-center gap-2.5">
-                        <Avatar className="size-7">
+                        <Avatar className="size-7 shrink-0">
                           <AvatarImage src="/icons/user.png" alt={row.customer_name ?? "Unknown"} />
                           <AvatarFallback className="text-[0.65rem] font-bold">
                             {initials(row.customer_name)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="font-medium">{row.customer_name ?? "Unknown"}</span>
+                        <div className="min-w-0">
+                          <div className="font-medium">{row.customer_name ?? "Unknown"}</div>
+                          {(row.customer_email || row.customer_phone) && (
+                            <div className="text-muted-foreground truncate text-xs">
+                              {row.customer_email ?? row.customer_phone}
+                              {row.customer_email && row.customer_phone && (
+                                <span className="ml-1.5 tabular-nums opacity-80">
+                                  {row.customer_phone}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">

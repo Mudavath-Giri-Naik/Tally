@@ -227,10 +227,13 @@ export function normalise(hook: RazorpayWebhook): NormalisedEvent | null {
       invoice_id: event.startsWith("invoice.") ? str(entity.id) : null,
       method,
       international: payment.international === true,
-      // The name given on this order specifically. The customer record holds
-      // one name and it is the latest, so without this every past case on the
-      // board silently re-labels itself when someone reorders under another.
+      // The details given on this order specifically. The customer record
+      // holds one set and they are the latest, so without these every past
+      // case on the board silently re-labels itself when someone reorders
+      // under another name or a different address.
       customer_name: contact.name,
+      customer_email: contact.email,
+      customer_phone: contact.phone,
       ...errorSurface,
     },
   };
