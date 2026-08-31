@@ -55,9 +55,9 @@
 .shell ol { padding-left: 22px; }
 .shell li { margin-bottom: 6px; }
 
-.shell a,
+.shell a:not(.btn),
 .topbar a { color: var(--accent); text-decoration: none; }
-.shell a:hover { text-decoration: underline; }
+.shell a:not(.btn):hover { text-decoration: underline; }
 
 .shell code,
 .topbar code {
