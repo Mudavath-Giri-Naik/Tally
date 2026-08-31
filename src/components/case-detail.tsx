@@ -1081,7 +1081,10 @@ export function DetailPanel({
         )}
       </div>
 
-
+      {/* Pinned below the scroll: an instruction is given while looking at the
+          case, so the box must not be at the end of a history you have to
+          scroll through to reach it. */}
+      {onAsk && <ChatBox asking={asking} onAsk={onAsk} />}
     </Card>
   );
 }
