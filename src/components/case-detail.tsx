@@ -202,8 +202,13 @@ function StepActions({
 
 export interface AdminChatTurn {
   id: string;
-  /** "you" is the admin's own line; "agent" is what came back. */
-  from: "you" | "agent";
+  /**
+   * Who spoke. "customer" is the half that was missing: their WhatsApp
+   * replies were drawn only as a bubble inside a timeline card, while the box
+   * a merchant actually reads - and which the panel scrolls to - held just
+   * their own exchange with the agent. One conversation, one place.
+   */
+  from: "you" | "agent" | "customer" | "to-customer";
   text: string;
   /** What the agent actually did, when it did something. */
   action?: string | null;
@@ -233,22 +238,37 @@ const CHAT_ACTION_LABEL: Record<string, string> = {
 };
 
 function ChatTurn({ turn }: { turn: AdminChatTurn }) {
-  const mine = turn.from === "you";
+  // The admin's own line and what we sent the customer are both "ours" and sit
+  // right; the customer's own words sit left, in WhatsApp's own green, so a
+  // reply is recognisable at a glance rather than by reading it.
+  const mine = turn.from === "you" || turn.from === "to-customer";
+  const fromCustomer = turn.from === "customer";
   const label = turn.action ? CHAT_ACTION_LABEL[turn.action] : null;
 
   return (
     <div
       className={cn(
-        "animate-in fade-in slide-in-from-bottom-1 flex duration-300",
-        mine ? "justify-end" : "justify-start",
+        "animate-in fade-in slide-in-from-bottom-1 flex flex-col duration-300",
+        mine ? "items-end" : "items-start",
       )}
     >
+      {/* Named, because three different voices in one thread is two too many
+          to infer from alignment alone. */}
+      {turn.from !== "you" && (
+        <span className="text-muted-foreground mb-0.5 px-1 text-[0.65rem] font-semibold tracking-wide uppercase">
+          {fromCustomer ? "Customer" : turn.from === "to-customer" ? "Sent to customer" : "Agent"}
+        </span>
+      )}
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
-          mine
-            ? "bg-primary text-primary-foreground rounded-br-sm"
-            : "bg-muted rounded-bl-sm",
+          fromCustomer
+            ? "rounded-bl-sm border border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100"
+            : turn.from === "to-customer"
+              ? "bg-muted rounded-br-sm"
+              : mine
+                ? "bg-primary text-primary-foreground rounded-br-sm"
+                : "bg-muted rounded-bl-sm",
         )}
       >
         <span className="whitespace-pre-wrap">{turn.text}</span>
@@ -1028,9 +1048,31 @@ export function DetailPanel({
     .filter(
       (e) =>
         e.message?.startsWith(ADMIN_ASK_PREFIX) ||
-        e.message?.startsWith(ADMIN_REPLY_PREFIX),
+        e.message?.startsWith(ADMIN_REPLY_PREFIX) ||
+        e.message?.startsWith(INBOUND_PREFIX) ||
+        e.message?.startsWith(REPLY_PREFIX),
     )
     .map((e) => {
+      // What the customer said, and what was said back to them, belong in the
+      // same thread as the admin's own questions - it is all one conversation
+      // about one person, and splitting it was why a reply looked missing.
+      if (e.message!.startsWith(INBOUND_PREFIX)) {
+        return {
+          id: e.id,
+          from: "customer" as const,
+          text: e.message!.slice(INBOUND_PREFIX.length),
+          at: e.created_at,
+        };
+      }
+      if (e.message!.startsWith(REPLY_PREFIX)) {
+        return {
+          id: e.id,
+          from: "to-customer" as const,
+          text: e.message!.slice(REPLY_PREFIX.length),
+          at: e.created_at,
+        };
+      }
+
       const mine = e.message!.startsWith(ADMIN_ASK_PREFIX);
       const body = e.message!.slice(
         (mine ? ADMIN_ASK_PREFIX : ADMIN_REPLY_PREFIX).length,
@@ -1073,7 +1115,11 @@ export function DetailPanel({
       (e) =>
         !e.message?.startsWith(SUMMARY_PREFIX) &&
         !e.message?.startsWith(ADMIN_ASK_PREFIX) &&
-        !e.message?.startsWith(ADMIN_REPLY_PREFIX),
+        !e.message?.startsWith(ADMIN_REPLY_PREFIX) &&
+        // Drawn in the conversation below instead of as a step, so the same
+        // message is not shown twice in one panel.
+        !e.message?.startsWith(INBOUND_PREFIX) &&
+        !e.message?.startsWith(REPLY_PREFIX),
     ) ?? [];
   const groups = groupAttempts(visible);
   // A dead end that is not a recovery gets a closing step saying so. Statuses
