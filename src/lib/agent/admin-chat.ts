@@ -30,6 +30,7 @@ import {
   ADMIN_REPLY_PREFIX,
   ADMIN_DID_MARKER,
   ADMIN_SENT_MARKER,
+  parseAgentTurn,
 } from "../board";
 import type { BoardRow, TimelineEntry } from "../board";
 
@@ -130,6 +131,78 @@ function systemPrompt(): string {
   ].join("\n");
 }
 
+/**
+ * How much case history to spend on context, in characters.
+ *
+ * Measured against the real thing rather than guessed: the busiest case in
+ * production carries 39 actions and 4.4KB of message text in total, so this
+ * fits every case there is several times over. It exists as a ceiling, not
+ * as a working limit - an unbounded prompt is a bill nobody agreed to.
+ *
+ * This is also why there is no vector store here. Retrieval earns its keep
+ * when a corpus cannot fit in context; one customer's entire history is
+ * around a thousand tokens, so fetching all of it is both cheaper and more
+ * faithful than embedding it and hoping the search returns the line that
+ * mattered.
+ */
+const HISTORY_BUDGET = 24_000;
+
+/** One timeline row as a line of context, untruncated. */
+function historyLine(t: TimelineEntry): string {
+  const when = t.created_at;
+  const what = t.channel ?? "no channel";
+  const guard = t.guardrail ? ` [${t.guardrail}]` : "";
+  const body = t.message ? `: ${t.message}` : "";
+  return `- ${when} ${what} ${t.outcome}${guard}${body}`;
+}
+
+/**
+ * The case's history and the admin's conversation, kept apart.
+ *
+ * They were one undifferentiated list before, capped at the last eight rows
+ * and cut at 160 characters each - so on a busy case the admin's own earlier
+ * questions were evicted by sends, and the agent answered follow-ups with no
+ * idea what it had just been asked. Separating them means "what happened to
+ * this customer" and "what have we been saying to each other" stay legible
+ * as different things, and neither crowds the other out.
+ */
+export function splitHistory(timeline: TimelineEntry[]): {
+  events: string;
+  conversation: string;
+} {
+  const events: string[] = [];
+  const conversation: string[] = [];
+
+  for (const t of timeline) {
+    const m = t.message ?? "";
+    if (m.startsWith(ADMIN_ASK_PREFIX)) {
+      conversation.push(`admin: ${m.slice(ADMIN_ASK_PREFIX.length)}`);
+    } else if (m.startsWith(ADMIN_REPLY_PREFIX)) {
+      // Only the reply itself - the stored receipt markers are for the panel.
+      conversation.push(`you: ${parseAgentTurn(m.slice(ADMIN_REPLY_PREFIX.length)).reply}`);
+    } else {
+      events.push(historyLine(t));
+    }
+  }
+
+  return { events: fit(events), conversation: fit(conversation) };
+}
+
+/** Keep the most recent lines that fit the budget, oldest dropped first. */
+function fit(lines: string[]): string {
+  const kept: string[] = [];
+  let size = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    size += lines[i].length + 1;
+    if (size > HISTORY_BUDGET) {
+      kept.unshift(`- ... ${i + 1} earlier entries omitted`);
+      break;
+    }
+    kept.unshift(lines[i]);
+  }
+  return kept.join("\n");
+}
+
 function userPrompt(input: {
   merchant: Merchant;
   row: BoardRow;
@@ -139,21 +212,14 @@ function userPrompt(input: {
 }): string {
   const { merchant, row, customer, timeline, question } = input;
   const profile = profileFor(row.reason);
-  const history = timeline
-    .slice(-8)
-    .map(
-      (t) =>
-        `- ${t.created_at} ${t.channel ?? "no channel"} ${t.outcome}` +
-        `${t.guardrail ? ` [${t.guardrail}]` : ""}` +
-        `${t.message ? `: ${t.message.slice(0, 160)}` : ""}`,
-    )
-    .join("\n");
+  const { events, conversation } = splitHistory(timeline);
 
   return [
     `Business: ${merchant.business_name} (${merchant.timezone})`,
     `Contact window: ${merchant.contact_window_start}-${merchant.contact_window_end}`,
     `Channels on: ${merchant.channels_enabled.join(", ") || "none"}`,
     `Attempt cap: ${merchant.max_attempts}`,
+    `Right now: ${new Date().toISOString()}`,
     "",
     `Customer: ${row.customer_name ?? "unknown"}`,
     `Email: ${customer?.email ?? "none"} | Phone: ${customer?.phone ?? "none"}`,
@@ -166,7 +232,13 @@ function userPrompt(input: {
     `Next attempt: ${row.next_attempt_at ?? "none scheduled"}`,
     row.stop_reason ? `Stopped because: ${row.stop_reason}` : "",
     "",
-    history ? `Recent history:\n${history}` : "Nothing has happened yet.",
+    events
+      ? `Everything that has happened on this case, oldest first:\n${events}`
+      : "Nothing has happened on this case yet.",
+    "",
+    conversation
+      ? `Your conversation with this admin so far:\n${conversation}`
+      : "",
     "",
     `The admin says: ${question}`,
   ]
