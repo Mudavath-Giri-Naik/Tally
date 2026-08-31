@@ -75,6 +75,21 @@ export function dropUnbackedLinkPromise(body: string, link: string | null): stri
   return out || "We were not able to generate your payment link just now - we will follow up shortly.";
 }
 
+/**
+ * Is this message trying to give the customer a link?
+ *
+ * Either by writing one out, or by promising one. Both mean the same thing to
+ * whoever reads it, so both are worth minting a real link for rather than
+ * quietly deleting - which is what used to happen to every URL the agent
+ * wrote, since the conversation had no link to permit.
+ */
+export function offersLink(body: string): boolean {
+  // A fresh non-global copy: URL_RE carries /g, and .test() on a global regex
+  // advances lastIndex, so the same string would answer true, then false, then
+  // true - a bug that only shows up on the second call.
+  return new RegExp(URL_RE.source, "i").test(body) || PROMISES_LINK.test(body);
+}
+
 /** True when the body still carries a URL that is not the permitted one. */
 export function hasInventedLink(body: string, allowed: string | null): boolean {
   const permitted = allowed ? normalise(allowed) : null;

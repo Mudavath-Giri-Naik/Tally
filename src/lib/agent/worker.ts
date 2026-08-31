@@ -381,13 +381,23 @@ async function processEvent(
       link,
     });
 
+    // What the customer actually received, for the transcript below.
+    //
+    // The text channels append the link themselves, so recording `safeMessage`
+    // filed a message that was missing the one line the customer was meant to
+    // act on - and the agent reads these rows back as its own history, so it
+    // could not tell which link it had already sent. Voice is excluded because
+    // a spoken call does not read a URL out; toSpeakable handles that.
+    const sentBody =
+      link && decision.channel !== "voice" ? `${body}\n\n${link}` : body;
+
     const attempts = event.attempts + 1;
 
     await recordAction({
       eventId: event.id,
       merchantId: merchant.id,
       channel: decision.channel,
-      message: safeMessage,
+      message: sentBody,
       outcome: result.ok ? "sent" : "failed",
       response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
       sentAt: result.ok ? new Date().toISOString() : null,

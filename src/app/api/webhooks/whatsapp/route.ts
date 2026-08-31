@@ -23,7 +23,8 @@ import twilio from "twilio";
 import { optionalEnv, isConfigured, PUBLIC_URL } from "@/lib/env";
 import { classifyReply, stripChannelPrefix } from "@/lib/inbound";
 import { INBOUND_PREFIX } from "@/lib/board";
-import { stripInventedLinks, dropUnbackedLinkPromise } from "@/lib/agent/links";
+import { stripInventedLinks, dropUnbackedLinkPromise, offersLink } from "@/lib/agent/links";
+import { paymentLinkForEvent } from "@/lib/agent/pay-link";
 import { normalisePhone } from "@/lib/razorpay";
 import {
   findCustomersByPhone,
@@ -537,6 +538,31 @@ async function replyToCustomer(
     });
   }
 
+  // If the reply offers a link - writes one, or promises one - mint the real
+  // one now. Until this existed the conversation had no link to permit, so
+  // every URL the agent wrote was stripped as an invention and the customer
+  // got a message referring to a link that had been deleted on the way out.
+  // The dashboard showed the draft, complete with the link, which is why this
+  // looked like WhatsApp dropping it rather than us removing it.
+  let link: string | null = null;
+  if (offersLink(reply.message)) {
+    const minted = await paymentLinkForEvent(merchant, events[0], customer);
+    link = minted.url;
+    if (!minted.url) {
+      console.warn("[whatsapp-in] could not create a payment link", {
+        customer: customer.id,
+        error: minted.error,
+      });
+    }
+  }
+
+  // Composed here rather than inside the transport, so the exact string the
+  // customer receives is the one written to the transcript below. They used to
+  // differ - the record kept the unfiltered draft - and the agent then read
+  // its own history back and referred to a link it had never sent.
+  const cleaned = dropUnbackedLinkPromise(stripInventedLinks(reply.message, link), link);
+  const sentBody = link ? `${cleaned}\n\n${link}` : cleaned;
+
   const result = await sendWhatsApp({
     merchantName: merchant.business_name,
     recipient: {
@@ -545,13 +571,8 @@ async function replyToCustomer(
       phone: customer.phone,
     },
     subject: null,
-    // This path had no link guard at all, which is how a reply came to say
-    // "using the link above" about a link that was never sent - the earlier
-    // send had failed to create one. It carries no link of its own, so any
-    // URL here is invented and any promise of one is unbacked.
-    body: dropUnbackedLinkPromise(stripInventedLinks(reply.message, null), null),
-    // The agent puts a link in the text itself when the conversation calls for
-    // one; appending a second copy would read as a bot repeating itself.
+    body: sentBody,
+    // Already appended above; passing it again would print it twice.
     link: null,
   });
 
@@ -560,7 +581,8 @@ async function replyToCustomer(
   // thread this person has, since the message reached all of them at once.
   await recordOnEveryThread(everyone, (anchor) => ({
     channel: "whatsapp",
-    message: `${REPLY_PREFIX}${reply.message}`,
+    // What was sent, not what was drafted.
+    message: `${REPLY_PREFIX}${sentBody}`,
     outcome: result.ok ? "sent" : "failed",
     response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
     sentAt: new Date().toISOString(),

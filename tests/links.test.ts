@@ -4,6 +4,7 @@ import {
   stripInventedLinks,
   hasInventedLink,
   dropUnbackedLinkPromise,
+  offersLink,
 } from "../src/lib/agent/links";
 import { explainFailure } from "../src/lib/agent/admin-chat";
 
@@ -109,5 +110,40 @@ describe("explaining a throttle to a person", () => {
     const raw =
       'Gemini 429: {"error":{"details":[{"quotaId":"GenerateRequestsPerDayPerProject-FreeTier"}]}}';
     assert.match(explainFailure(raw), /daily/i);
+  });
+});
+
+/**
+ * The signal that decides whether a real link gets minted at all.
+ *
+ * When this said no, every URL the agent wrote was stripped as an invention
+ * and the customer received a message referring to a link that had been
+ * deleted on the way out - while the dashboard, which recorded the draft,
+ * showed the link present. That is what made it look like WhatsApp dropping
+ * links rather than us removing them.
+ */
+describe("noticing that a reply is trying to give someone a link", () => {
+  test("a written-out URL counts", () => {
+    assert.equal(offersLink("You can pay here: https://rzp.io/i/AbCd1234"), true);
+    assert.equal(offersLink("go to www.example.com to pay"), true);
+  });
+
+  test("a promise with no URL counts too, since it needs backing", () => {
+    assert.equal(offersLink("Please complete it using the link below."), true);
+    assert.equal(offersLink("Click the link to finish your payment."), true);
+  });
+
+  test("an ordinary reply does not", () => {
+    assert.equal(offersLink("Which day can you complete the ₹4,499?"), false);
+    assert.equal(offersLink("Thanks - I will check that and come back to you."), false);
+  });
+
+  test("the answer does not change when asked twice", () => {
+    // URL_RE carries /g, and .test() on a global regex advances lastIndex -
+    // so the same string would answer true, then false, then true again.
+    const said = "Pay here: https://rzp.io/i/AbCd1234";
+    assert.equal(offersLink(said), true);
+    assert.equal(offersLink(said), true);
+    assert.equal(offersLink(said), true);
   });
 });
