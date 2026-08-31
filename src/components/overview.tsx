@@ -498,31 +498,29 @@ export function Overview({ slug, initial }: { slug: string; initial: Dashboard }
             icon: <XIcon className="size-4" />, colour: "var(--muted-foreground)",
           },
         ].map((s) => (
-          <Card
-            key={s.label}
-            size="sm"
-            className="gap-0 border"
-            style={{
-              background: `color-mix(in oklab, ${s.colour} 7%, var(--card))`,
-              borderColor: `color-mix(in oklab, ${s.colour} 22%, var(--border))`,
-            }}
-          >
-            <CardContent className="flex items-center gap-3 py-1">
+          // Same bg-card/ring/shadow treatment as every other card on this
+          // page, deliberately: a tinted background and a colour-matched
+          // border read as decoration once there are four of them in a row -
+          // the icon chip alone is enough colour to tell them apart.
+          <Card key={s.label} size="sm" className="gap-0">
+            <CardContent className="flex items-start gap-3">
               <div
-                className="flex size-8 shrink-0 items-center justify-center rounded-md"
-                style={{ background: `color-mix(in oklab, ${s.colour} 16%, transparent)`, color: s.colour }}
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg"
+                style={{ background: `color-mix(in oklab, ${s.colour} 14%, transparent)`, color: s.colour }}
               >
                 {s.icon}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className={cn("size-1.5 rounded-full", DOT_CLASS[s.tone])} aria-hidden="true" />
-                  <span className="text-muted-foreground truncate text-xs font-semibold">{s.label}</span>
+                  <span className="text-muted-foreground truncate text-xs font-semibold tracking-wide uppercase">
+                    {s.label}
+                  </span>
                 </div>
-                <div className="text-xl font-bold tracking-tight tabular-nums">{s.value}</div>
+                <div className="mt-1 text-2xl font-bold tracking-tight tabular-nums">{s.value}</div>
+                <p className="text-muted-foreground mt-0.5 truncate text-xs">{s.sub}</p>
               </div>
             </CardContent>
-            <p className="text-muted-foreground px-3 pb-2.5 text-xs">{s.sub}</p>
           </Card>
         ))}
       </div>
