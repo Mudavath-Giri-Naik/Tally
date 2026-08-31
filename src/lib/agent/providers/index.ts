@@ -153,6 +153,15 @@ export async function getProvider(): Promise<DecisionProvider | null> {
  * template path. Permanent errors (bad key, bad request) are not retried -
  * they will fail identically the second time.
  */
+/**
+ * The longest we will sit waiting on a provider before giving up.
+ *
+ * Bounded by the platform: these calls run inside a 60s serverless function
+ * that has other work to finish, so a stated delay longer than this is a
+ * signal to stop rather than to wait it out.
+ */
+const MAX_RETRY_WAIT_MS = 20_000;
+
 export async function withRetry<T>(
   fn: () => Promise<T>,
   opts: { attempts?: number; baseDelayMs?: number; label: string } = {
@@ -170,7 +179,12 @@ export async function withRetry<T>(
       lastErr = err;
       const retryable = (err as { retryable?: boolean }).retryable === true;
       if (!retryable || i === attempts - 1) throw err;
-      const delay = base * Math.pow(2, i);
+      // The provider's own figure wins over our guess, capped so a long
+      // stated delay cannot hold a serverless function open past its limit.
+      const asked = (err as { retryAfterMs?: number }).retryAfterMs;
+      const delay = asked
+        ? Math.min(asked, MAX_RETRY_WAIT_MS)
+        : base * Math.pow(2, i);
       console.warn(
         `[agent] ${opts.label} attempt ${i + 1}/${attempts} failed, retrying in ${delay}ms`,
       );
@@ -183,8 +197,19 @@ export async function withRetry<T>(
 /** An upstream failure that is worth trying again. */
 export class TransientProviderError extends Error {
   readonly retryable = true;
-  constructor(message: string) {
+  /**
+   * How long the provider itself asked us to wait, in ms.
+   *
+   * A per-minute quota does not clear in the two or three seconds an
+   * exponential backoff spends on it, so guessing produced three fast
+   * failures and a "rate-limited" message for something that would have
+   * succeeded on its own a moment later. Gemini states the delay; when it
+   * does, that is the number to use.
+   */
+  readonly retryAfterMs?: number;
+  constructor(message: string, retryAfterMs?: number) {
     super(message);
+    this.retryAfterMs = retryAfterMs;
     this.name = "TransientProviderError";
   }
 }

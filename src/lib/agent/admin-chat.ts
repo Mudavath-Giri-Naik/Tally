@@ -110,6 +110,18 @@ export function explainFailure(raw: string): string {
     return raw;
   }
   if (s.includes("429") || s.includes("rate limit") || s.includes("quota")) {
+    // Per-minute and per-day exhaustion need different responses from a
+    // person: one clears itself in under a minute, the other is done until
+    // tomorrow unless the plan changes. Google names which in the quota id.
+    if (s.includes("perday") || s.includes("per day")) {
+      return "This project's daily free-tier request limit is used up. It resets at midnight Pacific, or you can raise the quota in Google AI Studio.";
+    }
+    const wait = raw.match(/"retryDelay"\s*:\s*"(\d+)s"/)?.[1];
+    if (s.includes("perminute") || s.includes("per minute") || wait) {
+      return wait
+        ? `Too many requests in the last minute - the free tier allows only a handful. It clears in about ${wait} seconds.`
+        : "Too many requests in the last minute - the free tier allows only a handful. It clears within the minute.";
+    }
     return "The model is rate-limited right now. Give it a moment and ask again.";
   }
   if (s.includes("503") || s.includes("overloaded") || s.includes("high demand")) {

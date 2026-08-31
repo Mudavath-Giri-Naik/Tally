@@ -155,6 +155,21 @@ const SUMMARY_SCHEMA = {
   required: ["summary", "needs_human"],
 } as const;
 
+/**
+ * The wait Gemini asks for on a 429, in ms.
+ *
+ * It returns a RetryInfo detail like `"retryDelay": "27s"`. Free-tier limits
+ * are per minute, so the honest wait is tens of seconds - far longer than an
+ * exponential backoff would guess, which is why a throttle that would have
+ * cleared itself was being reported as a failure.
+ */
+export function retryDelayMs(body: string): number | undefined {
+  const m = body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  if (!m) return undefined;
+  const seconds = Number(m[1]);
+  return Number.isFinite(seconds) ? Math.ceil(seconds * 1000) : undefined;
+}
+
 export class GeminiProvider implements DecisionProvider {
   readonly name = "gemini";
   readonly model: string;
@@ -336,7 +351,7 @@ export class GeminiProvider implements DecisionProvider {
       const message = `Gemini ${res.status}: ${text.slice(0, 250)}`;
       // 429 quota, 503 high demand, 5xx - transient. 400/401/403 are not.
       if (res.status === 429 || res.status >= 500) {
-        throw new TransientProviderError(message);
+        throw new TransientProviderError(message, retryDelayMs(text));
       }
       throw new Error(message);
     }

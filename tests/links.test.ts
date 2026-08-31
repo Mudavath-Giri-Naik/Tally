@@ -5,6 +5,7 @@ import {
   hasInventedLink,
   dropUnbackedLinkPromise,
 } from "../src/lib/agent/links";
+import { explainFailure } from "../src/lib/agent/admin-chat";
 
 const REAL = "https://rzp.io/i/AbCd1234";
 
@@ -90,5 +91,23 @@ describe("promising a link that was never attached", () => {
     const out = dropUnbackedLinkPromise("Please pay using the link below.", null);
     assert.ok(out.length > 0, "never sends an empty message");
     assert.ok(!/link below/i.test(out));
+  });
+});
+
+describe("explaining a throttle to a person", () => {
+  test("a per-minute limit says it clears itself, and when", () => {
+    const raw =
+      'Gemini 429: {"error":{"status":"RESOURCE_EXHAUSTED","details":[' +
+      '{"quotaId":"GenerateRequestsPerMinutePerProjectPerModel-FreeTier"},' +
+      '{"retryDelay":"27s"}]}}';
+    const out = explainFailure(raw);
+    assert.match(out, /27 seconds/);
+    assert.ok(!/daily/i.test(out), "a per-minute throttle is not a daily one");
+  });
+
+  test("a daily limit says so, because waiting will not help", () => {
+    const raw =
+      'Gemini 429: {"error":{"details":[{"quotaId":"GenerateRequestsPerDayPerProject-FreeTier"}]}}';
+    assert.match(explainFailure(raw), /daily/i);
   });
 });
