@@ -165,6 +165,50 @@ describe("classifyFailure", () => {
       );
     });
 
+    // The three shapes a live Razorpay account actually produced, all of
+    // which used to land on "Unknown failure" in the dashboard.
+    test("a cancelled checkout is an abandonment, not a failure", () => {
+      assert.equal(
+        classifyFailure({
+          error_code: "BAD_REQUEST_ERROR",
+          error_description:
+            "Your payment has been cancelled. Try again or complete the payment later.",
+          error_reason: "payment_cancelled",
+          error_source: "customer",
+          error_step: "payment_authentication",
+        }),
+        "customer_abandoned",
+      );
+    });
+
+    test("a bare failure raised by the gateway is treated as systemic", () => {
+      assert.equal(
+        classifyFailure({
+          error_code: "BAD_REQUEST_ERROR",
+          error_description: "Payment failed",
+          error_reason: "payment_failed",
+          error_source: "gateway",
+          error_step: "payment_authorization",
+        }),
+        "gateway_timeout",
+      );
+    });
+
+    test("the customer being the source is not itself a cause", () => {
+      // Nothing stated, and "customer" narrows nothing - it covers a cancel,
+      // a typo and a decline alike. Unknown is the honest answer.
+      assert.equal(
+        classifyFailure({
+          error_code: "BAD_REQUEST_ERROR",
+          error_description: "Payment failed",
+          error_reason: "payment_failed",
+          error_source: "customer",
+          error_step: "payment_authorization",
+        }),
+        "unknown",
+      );
+    });
+
     test("a technical error class is systemic even when the prose is empty", () => {
       assert.equal(
         classifyFailure({

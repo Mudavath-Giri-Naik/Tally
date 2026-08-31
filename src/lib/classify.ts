@@ -257,6 +257,24 @@ const RULES: Rule[] = [
     ],
   },
 
+  // --- the customer chose not to continue ---
+  //
+  // Razorpay reports a closed or abandoned checkout as a `payment.failed`
+  // with reason `payment_cancelled`, which reads as a failure but is not
+  // one: nothing was declined and nothing is broken. It belongs with the
+  // abandoned checkouts, whose remedy is simply to bring them back - not
+  // with authentication failures, which imply a verification that went wrong.
+  {
+    cause: "customer_abandoned",
+    patterns: [
+      /payment[_ ]?(cancelled|canceled)/,
+      /(cancelled|canceled)[_ ]?by[_ ]?(the[_ ]?)?(user|customer|payer)/,
+      /customer[_ ]?(cancelled|canceled)[_ ]?(the[_ ]?)?(payment|transaction)/,
+      /has[_ ]?been[_ ]?(cancelled|canceled)/,
+      /user[_ ]?(aborted|dropped)/,
+    ],
+  },
+
   // --- authentication ---
   {
     cause: "otp_failed",
@@ -272,7 +290,6 @@ const RULES: Rule[] = [
       /3ds|three[_ ]?d[_ ]?secure/,
       /authentication[_ ]?(failed|error|not[_ ]?completed)/,
       /auth[_ ]?(failed|declined)/,
-      /customer[_ ]?(cancelled|canceled)[_ ]?(the[_ ]?)?(payment|transaction)/,
       // A UPI collect request the customer never approved before it lapsed.
       // Nothing was declined - they simply did not complete the approval.
       /(upi[_ ]?)?collect[_ ]?(request[_ ]?)?expired/,
@@ -330,16 +347,26 @@ export interface RazorpayErrorSurface {
  */
 function fromStructuredFields(err: RazorpayErrorSurface): RootCause | null {
   const step = err.error_step?.toLowerCase().trim() ?? "";
+  const source = err.error_source?.toLowerCase().trim() ?? "";
 
   // The payment stopped at the authentication step: the customer never got
   // through OTP/3DS. That is where it died, not a theory about why.
-  //
-  // Only the step is read here. `error_source` deliberately is not: "bank"
-  // sources an insufficient-funds decline exactly as it sources an outage,
-  // so on its own it separates nothing, and the technical error classes that
-  // would pair with it (GATEWAY_ERROR, SERVER_ERROR, BANK_ERROR) are already
-  // caught as systemic by the patterns above.
   if (step === "payment_authentication") return "authentication_failed";
+
+  // Which side raised it, for the sources that can only mean infrastructure.
+  // A gateway does not decline anyone for insufficient funds - the bank
+  // does - so "gateway" genuinely narrows things in a way that "bank" and
+  // "issuer" cannot, and those are deliberately left out: a decline is
+  // sourced from the bank exactly as an outage is.
+  //
+  // Being wrong in this direction is also the cheap way to be wrong. The
+  // systemic remedy retries quietly and apologises for the glitch, so a
+  // hard decline mistaken for one costs an unnecessary apology. The reverse
+  // - blaming a customer whose bank was simply unreachable - is the error
+  // worth avoiding.
+  if (source === "gateway" || source === "internal" || source === "networks") {
+    return "gateway_timeout";
+  }
 
   return null;
 }
