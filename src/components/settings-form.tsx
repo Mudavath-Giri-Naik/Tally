@@ -26,12 +26,26 @@ const CHANNELS: Array<{ id: Channel; label: string; note: string }> = [
   { id: "voice", label: "Voice", note: "A real call, for the largest amounts." },
 ];
 
+/**
+ * The backends a merchant can choose between.
+ *
+ * Groq leads because it is materially faster at this size of prompt, and the
+ * case panel blocks on these calls while someone waits.
+ */
+const AI_PROVIDERS = [
+  { id: "groq", label: "Groq - fastest" },
+  { id: "gemini", label: "Google Gemini" },
+  { id: "anthropic", label: "Anthropic Claude" },
+] as const;
+
 export interface SettingsValues {
   contact_window_start: string;
   contact_window_end: string;
   timezone: string;
   max_attempts: number;
   channels_enabled: Channel[];
+  /** Null means the platform default rather than a choice. */
+  ai_provider: string | null;
   workflows_enabled: WorkflowId[];
   active: boolean;
 }
@@ -223,6 +237,35 @@ export function SettingsForm({
                 <p className="text-destructive text-sm">{error}</p>
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="ai">Model</Label>
+            <p className="text-muted-foreground -mt-1 text-sm">
+              Which backend writes the messages and answers in the case panel.
+              Keys are held centrally - if one is rate-limited the next is used
+              automatically, and another provider only after that.
+            </p>
+            <select
+              id="ai"
+              className="border-input bg-background h-9 w-full max-w-xs rounded-md border px-3 text-sm"
+              value={form.ai_provider ?? ""}
+              onChange={(e) => {
+                const next = e.target.value === "" ? null : e.target.value;
+                set("ai_provider", next);
+                void save({ ai_provider: next });
+              }}
+            >
+              <option value="">Platform default (Groq)</option>
+              {AI_PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            {errorField === "ai_provider" && (
+              <p className="text-destructive text-sm">{error}</p>
+            )}
           </div>
 
           <div className="space-y-3">

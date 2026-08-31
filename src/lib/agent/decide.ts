@@ -15,6 +15,7 @@ import { formatINR } from "../types";
 import type { Channel } from "../types";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt";
 import { getProvider, type AgentDecision } from "./providers";
+import { providerFor } from "./rotating";
 import {
   clamp,
   availableChannels,
@@ -122,7 +123,7 @@ export async function decide(ctx: DecisionContext): Promise<DecisionResult> {
 
   let provider = null;
   try {
-    provider = await getProvider();
+    provider = await providerFor(ctx.merchant);
   } catch (err) {
     // A misconfigured TALLY_LLM_PROVIDER should be loud, not silent.
     console.error("[agent] provider selection failed", err);

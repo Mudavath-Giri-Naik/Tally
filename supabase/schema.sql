@@ -48,6 +48,10 @@ create table if not exists merchants (
     'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
   ],
 
+  -- Which model backend this business runs on. Null means the platform
+  -- default, so an existing merchant keeps working without being migrated.
+  ai_provider           text,
+
   active                boolean     not null default true,  -- [+] pause a merchant without deleting them
   created_at            timestamptz not null default now(),
 
@@ -71,6 +75,10 @@ create table if not exists merchants (
 alter table merchants add column if not exists workflows_enabled text[] not null default array[
   'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
 ];
+
+-- Same treatment for an already-deployed database: the create block above
+-- never runs on an existing table, so the column arrives from here.
+alter table merchants add column if not exists ai_provider text;
 
 -- The check constraint needs the same treatment, and cannot ride along on the
 -- alter above: on an existing table the constraint declared in the create
@@ -110,6 +118,47 @@ create unique index if not exists customers_merchant_email_key
   on customers (merchant_id, lower(email)) where email is not null;
 create unique index if not exists customers_merchant_phone_key
   on customers (merchant_id, phone) where phone is not null;
+
+
+-- --- ai_keys ---------------------------------------------------------------
+-- The model credentials, as a pool rather than one environment variable.
+--
+-- Platform-level, not per-merchant: a merchant's Razorpay keys are theirs and
+-- move their money, but an inference key is the operator's own cost and is
+-- shared across every tenant. What a merchant chooses is the *provider*
+-- (merchants.ai_provider), not the key.
+--
+-- Several keys per provider is the point. Free tiers are rate-limited per
+-- project, so one key is one ceiling; when a key is throttled the pool moves
+-- to the next rather than degrading to templates, and only falls through to
+-- another provider when a whole provider is spent.
+create table if not exists ai_keys (
+  id            uuid primary key default gen_random_uuid(),
+  provider      text        not null,
+  -- A human label, e.g. "groq personal" - so an exhausted key is identifiable
+  -- without decrypting anything.
+  label         text        not null,
+  -- AES-256-GCM, same scheme and same encryption key as merchant credentials.
+  api_key       text        not null,
+  -- Overrides the provider's default model when set.
+  model         text,
+  -- Lower is tried first. Ties break on created_at.
+  priority      int         not null default 100,
+  active        boolean     not null default true,
+  -- Set when the provider says it is out of quota. The key is skipped until
+  -- this passes, so a throttled key stops being retried on every request but
+  -- comes back on its own rather than needing a human to re-enable it.
+  cooldown_until timestamptz,
+  -- Why it was last put in cooldown, kept for the operator to read.
+  last_error    text,
+  last_used_at  timestamptz,
+  created_at    timestamptz not null default now(),
+
+  constraint ai_keys_provider_valid check (provider in ('groq', 'gemini', 'anthropic'))
+);
+
+create index if not exists ai_keys_pick
+  on ai_keys (provider, priority, created_at) where active;
 
 -- --- events ----------------------------------------------------------------
 create table if not exists events (

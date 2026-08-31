@@ -54,6 +54,7 @@ export default async function SettingsPage({
           max_attempts: merchant.max_attempts,
           channels_enabled: merchant.channels_enabled,
           workflows_enabled: pub.workflows_enabled,
+          ai_provider: merchant.ai_provider ?? null,
           active: merchant.active,
         }}
       />

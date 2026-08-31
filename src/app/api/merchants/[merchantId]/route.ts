@@ -16,6 +16,7 @@ import {
 } from "@/lib/merchants";
 import { PUBLIC_URL } from "@/lib/env";
 import { normaliseWorkflows } from "@/lib/workflows";
+import { isProviderName } from "@/lib/ai-keys";
 import type { Channel, Merchant } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -33,6 +34,7 @@ type Patch = Partial<
     | "max_attempts"
     | "channels_enabled"
     | "workflows_enabled"
+    | "ai_provider"
     | "active"
   >
 >;
@@ -40,6 +42,19 @@ type Patch = Partial<
 /** Build the patch from the body, rejecting anything the schema would. */
 function readPatch(body: Record<string, unknown>): Patch {
   const patch: Patch = {};
+
+  if (body.ai_provider !== undefined) {
+    const value = body.ai_provider;
+    // Null is meaningful: it means "whatever the platform default is", which
+    // is what every merchant created before this had.
+    if (value === null || value === "") {
+      patch.ai_provider = null;
+    } else if (isProviderName(value)) {
+      patch.ai_provider = value;
+    } else {
+      throw new ValidationError("ai_provider", "Pick one of the listed providers.");
+    }
+  }
 
   for (const key of ["contact_window_start", "contact_window_end"] as const) {
     if (body[key] === undefined) continue;

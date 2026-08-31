@@ -32,7 +32,10 @@ export type CredentialContext =
   | "razorpay_key_id"
   | "razorpay_key_secret"
   | "whatsapp_number"
-  | "voice_number";
+  | "voice_number"
+  // Model provider keys. Platform-owned rather than a merchant's, but stored
+  // under the same scheme - a credential is a credential.
+  | "ai_api_key";
 
 function loadKey(): Buffer {
   const raw = requireEnv(

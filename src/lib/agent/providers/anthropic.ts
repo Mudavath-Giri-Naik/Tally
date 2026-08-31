@@ -35,13 +35,18 @@ export class AnthropicProvider implements DecisionProvider {
   readonly name = "anthropic";
   readonly model: string;
   private client: Anthropic | null = null;
+  /** Supplied from the key pool; falls back to the SDK's own env lookup. */
+  private readonly apiKey?: string;
 
-  constructor(model?: string) {
+  constructor(model?: string, apiKey?: string) {
     this.model = model ?? optionalEnv("ANTHROPIC_MODEL") ?? DEFAULT_MODEL;
+    this.apiKey = apiKey;
   }
 
   private sdk(): Anthropic {
-    if (!this.client) this.client = new Anthropic();
+    if (!this.client) {
+      this.client = this.apiKey ? new Anthropic({ apiKey: this.apiKey }) : new Anthropic();
+    }
     return this.client;
   }
 

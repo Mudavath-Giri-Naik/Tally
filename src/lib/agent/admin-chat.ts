@@ -16,7 +16,8 @@
  * automated ones, marked source "admin", so the panel reads as one story
  * regardless of who moved it forward.
  */
-import { getProvider, type AgentCommand } from "./providers";
+import { type AgentCommand } from "./providers";
+import { providerFor } from "./rotating";
 import { updateMerchantSettings, razorpayCredentials } from "../merchants";
 import { createRetryLink, adminLinkReference } from "../razorpay";
 import { applyAdminOverride, AdminActionError, recordAction, getEvent } from "../events";
@@ -503,7 +504,7 @@ async function respond(input: {
   siblings?: BoardRow[];
   question: string;
 }): Promise<AdminChatResult> {
-  const provider = await getProvider();
+  const provider = await providerFor(input.merchant);
   if (!provider) {
     return {
       reply:

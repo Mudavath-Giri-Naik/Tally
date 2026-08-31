@@ -114,18 +114,58 @@ export interface DecisionProvider {
   command(system: string, user: string): Promise<AgentCommand>;
 }
 
-export type ProviderName = "anthropic" | "gemini";
+export type ProviderName = "groq" | "anthropic" | "gemini";
+
+/** Build one provider bound to one key. */
+export async function providerForKey(key: {
+  provider: ProviderName;
+  apiKey: string;
+  model: string | null;
+}): Promise<DecisionProvider> {
+  if (key.provider === "groq") {
+    const { GroqProvider } = await import("./groq");
+    return new GroqProvider(key.apiKey, key.model);
+  }
+  if (key.provider === "anthropic") {
+    const { AnthropicProvider } = await import("./anthropic");
+    return new AnthropicProvider(key.model ?? undefined, key.apiKey);
+  }
+  const { GeminiProvider } = await import("./gemini");
+  return new GeminiProvider(key.model ?? undefined, key.apiKey);
+}
+
+/**
+ * True when a failure means "this key is spent", rather than "this request
+ * was wrong". Only the former is worth moving to another key for - a bad
+ * prompt fails identically on every key in the pool.
+ */
+export function isExhausted(err: unknown): boolean {
+  const m = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+  return (
+    m.includes("429") ||
+    m.includes("rate limit") ||
+    m.includes("quota") ||
+    m.includes("resource_exhausted") ||
+    m.includes("insufficient_quota") ||
+    // A revoked or mistyped key is spent for our purposes too: the next one
+    // may well work, and retrying this one never will.
+    m.includes("401") ||
+    m.includes("invalid api key") ||
+    m.includes("unauthorized")
+  );
+}
 
 export function selectedProviderName(): ProviderName | null {
   const explicit = optionalEnv("TALLY_LLM_PROVIDER")?.toLowerCase();
-  if (explicit === "anthropic" || explicit === "gemini") {
+  if (explicit === "anthropic" || explicit === "gemini" || explicit === "groq") {
     return explicit;
   }
   if (explicit) {
     throw new Error(
-      `TALLY_LLM_PROVIDER must be "anthropic" or "gemini", got "${explicit}".`,
+      `TALLY_LLM_PROVIDER must be "groq", "anthropic" or "gemini", got "${explicit}".`,
     );
   }
+  if (isConfigured("GROQ_API_KEY")) return "groq";
   if (isConfigured("ANTHROPIC_API_KEY")) return "anthropic";
   if (isConfigured("GEMINI_API_KEY")) return "gemini";
   return null;
@@ -134,6 +174,13 @@ export function selectedProviderName(): ProviderName | null {
 /** Build the configured provider, or null when no model is configured. */
 export async function getProvider(): Promise<DecisionProvider | null> {
   const name = selectedProviderName();
+  if (name === "groq") {
+    const { GroqProvider } = await import("./groq");
+    return new GroqProvider(
+      optionalEnv("GROQ_API_KEY")!,
+      optionalEnv("GROQ_MODEL") ?? null,
+    );
+  }
   if (name === "anthropic") {
     const { AnthropicProvider } = await import("./anthropic");
     return new AnthropicProvider();

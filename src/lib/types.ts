@@ -69,6 +69,14 @@ export interface Merchant {
   channels_enabled: Channel[];
   /** Which of the four recovery workflows this merchant runs. */
   workflows_enabled: WorkflowId[];
+  /**
+   * Which model backend this business runs on. Null means the platform
+   * default, so a merchant created before this existed keeps working.
+   *
+   * The choice is the provider, not the key: keys are the operator's own cost
+   * and live in a shared pool (see lib/ai-keys).
+   */
+  ai_provider: string | null;
   active: boolean;
   created_at: string;
 }

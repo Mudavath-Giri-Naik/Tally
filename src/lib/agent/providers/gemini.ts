@@ -174,15 +174,24 @@ export class GeminiProvider implements DecisionProvider {
   readonly name = "gemini";
   readonly model: string;
 
-  constructor(model?: string) {
+  /** Supplied from the key pool; falls back to the environment. */
+  private readonly apiKey?: string;
+
+  constructor(model?: string, apiKey?: string) {
     this.model = model ?? optionalEnv("GEMINI_MODEL") ?? DEFAULT_MODEL;
+    this.apiKey = apiKey;
+  }
+
+  /** The pooled key if there is one, otherwise the environment's. */
+  private key(): string {
+    return (
+      this.apiKey ??
+      requireEnv("GEMINI_API_KEY", "the recovery decision engine (provider: gemini)")
+    );
   }
 
   async decide(system: string, user: string): Promise<AgentDecision> {
-    const apiKey = requireEnv(
-      "GEMINI_API_KEY",
-      "the recovery decision engine (TALLY_LLM_PROVIDER=gemini)",
-    );
+    const apiKey = this.key();
     const base = optionalEnv("GEMINI_BASE_URL") ?? ENDPOINT;
 
     const body = {
@@ -285,10 +294,7 @@ export class GeminiProvider implements DecisionProvider {
     temperature: number,
     maxOutputTokens: number,
   ): Promise<unknown> {
-    const apiKey = requireEnv(
-      "GEMINI_API_KEY",
-      "the recovery decision engine (TALLY_LLM_PROVIDER=gemini)",
-    );
+    const apiKey = this.key();
     const base = optionalEnv("GEMINI_BASE_URL") ?? ENDPOINT;
 
     const raw = await withRetry(

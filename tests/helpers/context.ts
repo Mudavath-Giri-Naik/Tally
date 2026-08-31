@@ -28,7 +28,8 @@ export function makeMerchant(over: Partial<Merchant> = {}): Merchant {
       "subscription_autopay",
       "overdue_invoice",
     ],
-    active: true,
+    ai_provider: null,
+  active: true,
     created_at: "2026-01-01T00:00:00Z",
     ...over,
   };

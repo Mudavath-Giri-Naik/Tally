@@ -147,7 +147,7 @@ describe("provider selection", () => {
 
   test("a misspelled provider is an error, not a silent fallback", () => {
     process.env.TALLY_LLM_PROVIDER = "gemeni";
-    assert.throws(() => selectedProviderName(), /must be "anthropic" or "gemini"/);
+    assert.throws(() => selectedProviderName(), /must be "groq", "anthropic" or "gemini"/);
   });
 });
 
