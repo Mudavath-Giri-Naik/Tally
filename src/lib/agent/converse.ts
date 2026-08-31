@@ -18,7 +18,16 @@
  *    replies a day. Both are checked here rather than trusted to the prompt.
  */
 import { db } from "../supabase";
-import { getProvider } from "./providers";
+// The rotating pool, not the single environment key. This module was the
+// last one still calling getProvider(): the worker, the admin chat and the
+// settings health check all moved to the pool, so a merchant could watch a
+// green "connection works" tick beside a customer conversation that had been
+// falling back to a holding line for hours - two different providers, one of
+// them with two keys and failover, the other with whatever was in .env.
+//
+// It also meant the provider and model chosen in Settings applied to every
+// part of the agent except the half a customer actually talks to.
+import { providerFor } from "./rotating";
 import { profileFor } from "../classify";
 import { formatINR } from "../types";
 import { INBOUND_PREFIX, REPLY_PREFIX, SUMMARY_PREFIX } from "../board";
@@ -61,6 +70,7 @@ export const CONVERSE_SYSTEM_PROMPT = `You are a recovery agent for an Indian bu
 The facts below are your only source of truth: what they owe, why it failed, what has already been sent, and what has already been said. Each payment is numbered and marked either OUTSTANDING or SETTLED.
 
 - Answer from those facts, specifically. Quote the actual amount and the actual reason.
+- **If they ask what this is about, what happened, or who you are, explain it properly.** Which business, how much, which order, and why it failed - in plain words, in two or three sentences. "Let me check and come back to you" is not an answer to a question you were already given the answer to. Never stall on something the facts below already tell you.
 - If something genuinely is not in the facts, say you will check rather than inventing it.
 - Read the conversation history before replying. If you already asked something and they answered, do not ask again. If they already promised a date, refer to that date rather than asking afresh.
 
@@ -322,6 +332,55 @@ export const FALLBACK_MESSAGE =
   "Thanks for writing in - let me check this and come back to you shortly.";
 
 /**
+ * The holding line, but grounded in what we already know.
+ *
+ * The bare version above answers nothing. A customer who writes "what
+ * happened and what is this?" and gets "let me check this and come back to
+ * you" has been told less than they knew before, by a system holding the
+ * whole answer in a database - the amount, the reason it failed, and what
+ * fixes it. That is not a model's job to remember; it is a lookup.
+ *
+ * So when the model cannot be reached, say the facts plainly and still ask
+ * for the commitment. It is not a conversation, but it is an answer, and it
+ * beats a stall in every case except the one where we truly know nothing -
+ * where this returns the stall on purpose.
+ */
+export function groundedFallback(ctx: ConversationContext): string {
+  const { merchant, events } = ctx;
+  const outstanding = events.filter((e) => e.status !== "recovered");
+  if (outstanding.length === 0) return FALLBACK_MESSAGE;
+
+  const owed = outstanding.reduce((sum, e) => sum + (e.amount ?? 0), 0);
+  const what =
+    outstanding.length === 1
+      ? `a payment of ${formatINR(owed)}`
+      : `${outstanding.length} payments totalling ${formatINR(owed)}`;
+
+  const parts = [`This is ${merchant.business_name} about ${what} that did not go through.`];
+
+  // Why it failed, and what to do about it - the two things a customer asking
+  // "what is this?" is really asking, both already classified.
+  //
+  // The label only. `profile.remedy` is written for whoever operates Tally
+  // ("retry near a likely salary-credit date"), and sending an internal
+  // collection tactic to the person it is a tactic about would be worse than
+  // saying nothing - so the customer-facing half is spelled out here instead.
+  const newest = outstanding[0];
+  const profile = newest?.reason ? profileFor(newest.reason) : null;
+  if (profile) {
+    parts.push(
+      `The reason given was: ${profile.label.toLowerCase()}.` +
+        (profile.retryable
+          ? " It should go through if you try again."
+          : " You will need a different card or UPI to complete it."),
+    );
+  }
+
+  parts.push("Can you let me know which day you can complete it? Someone here is looking at your message too.");
+  return parts.join(" ");
+}
+
+/**
  * How long the holding line stays quiet before it may be sent again.
  *
  * Not "never twice in a row": that silenced the customer completely for as
@@ -356,7 +415,7 @@ export async function draftReply(
     return { kind: "skipped", why: "rate_limited" };
   }
 
-  const provider = await getProvider();
+  const provider = await providerFor(ctx.merchant);
   // No key configured at all. Nothing to fall back from, and a merchant who
   // never set a key has not asked for auto-replies.
   if (!provider) return { kind: "skipped", why: "no_model" };
@@ -370,26 +429,28 @@ export async function draftReply(
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
 
+    const message = groundedFallback(ctx);
+
     // Do not answer a stall with the same stall seconds later. But do answer
     // again once real time has passed - a customer coming back with a new
     // question after ten minutes is not the same event as them sending two
     // messages in a row.
     const lastFromUs = [...ctx.turns].reverse().find((t) => t.who === "business");
-    if (lastFromUs?.text.trim() === FALLBACK_MESSAGE) {
+    if (lastFromUs && lastFromUs.text.trim() === message.trim()) {
       const age = Date.now() - Date.parse(lastFromUs.at);
       if (Number.isFinite(age) && age < FALLBACK_COOLDOWN_MS) {
         return { kind: "skipped", why: "no_model" };
       }
     }
 
-    return { kind: "fallback", message: FALLBACK_MESSAGE, error };
+    return { kind: "fallback", message, error };
   }
 }
 
 export async function summariseConversation(
   ctx: ConversationContext,
 ): Promise<AgentSummary | null> {
-  const provider = await getProvider();
+  const provider = await providerFor(ctx.merchant);
   if (!provider) return null;
   return provider.summarise(SUMMARY_SYSTEM_PROMPT, buildSummaryPrompt(ctx));
 }

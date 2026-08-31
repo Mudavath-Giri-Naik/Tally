@@ -92,6 +92,47 @@ describe("choosing an option", () => {
     assert.equal(resolveChoice("root", "9"), null);
   });
 
+  /**
+   * The loose pass used to match a bare substring, which put a trapdoor under
+   * every sentence containing an option's word. Each of these drew a canned
+   * menu answer to a real question - and the "stop" one silently opted a
+   * customer out of a conversation they were in the middle of having.
+   */
+  test("a question is never a menu selection, whatever words it contains", () => {
+    for (const said of [
+      "why should I pay for something I didn't get?",
+      "what happened and what is this?",
+      "is this an agent or a real person?",
+      "can you tell me why the payment failed?",
+      "how do I get the link?",
+      "which one of these have I already paid?",
+    ]) {
+      assert.equal(resolveChoice("options", said), null, said);
+    }
+  });
+
+  test("a denial is never a menu selection", () => {
+    for (const said of [
+      "I haven't paid because the site crashed",
+      "I did not pay for this",
+      "this doesn't help me at all",
+      "stop asking me, I already told you",
+      "I won't pay until someone explains the charge",
+      "no I never got a link",
+    ]) {
+      assert.equal(resolveChoice("options", said), null, said);
+    }
+  });
+
+  test("but a plain selection in prose still works", () => {
+    assert.equal(resolveChoice("options", "ok send me the link please")?.action, "pay_now");
+    assert.equal(resolveChoice("options", "already paid")?.action, "already_paid");
+    assert.equal(resolveChoice("options", "let me talk to a human")?.action, "talk_to_human");
+    // An exact alias is a deliberate press, so it is honoured even though the
+    // loose pass would refuse the word on its own.
+    assert.equal(resolveChoice("options", "stop")?.action, "opt_out");
+  });
+
   test("every option is reachable and numbered in order", () => {
     for (const [id, options] of Object.entries(MENUS)) {
       options.forEach((o, i) => {

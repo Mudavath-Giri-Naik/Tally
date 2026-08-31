@@ -132,11 +132,52 @@ export function resolveChoice(id: MenuId, body: string): MenuOption | null {
   }
 
   // A longer sentence that happens to contain an alias ("ok send me the
-  // link please"). Checked second so an exact match always wins.
+  // link please"). Checked second so an exact match always wins - and only
+  // for something that still reads as a selection, see below.
+  if (!readsAsSelection(body, text)) return null;
   for (const option of MENUS[id]) {
+    // Never opting someone out on a substring. It is the one choice here that
+    // cannot be walked back by the next message, and "stop asking me, I
+    // already told you" is a customer mid-conversation, not one leaving it.
+    // An exact "stop" still opts out, above - as does the inbound classifier,
+    // long before this runs.
+    if (option.action === "opt_out") continue;
     if (option.aliases?.some((a) => text.includes(a))) return option;
   }
   return null;
+}
+
+const INTERROGATIVE =
+  /^(what|why|how|when|where|who|whom|whose|which|is|are|was|were|can|could|will|would|do|does|did|should|shall|am|have|has|had)\b/;
+
+const NEGATION =
+  /\b(not|no|dont|cant|wont|didnt|doesnt|havent|hasnt|isnt|arent|wasnt|never|refuse|refusing|unless|instead)\b/;
+
+/**
+ * Is this still someone picking an option, or is it a sentence that merely
+ * contains one of the words?
+ *
+ * The loose pass exists so "ok send me the link please" selects "pay now",
+ * and that is worth keeping. But it matched on a bare substring, which made
+ * every alias a trapdoor under any sentence containing it: "I haven't paid
+ * because the site crashed" hit `paid` and drew a cheerful "we'll check our
+ * records"; "why should I pay for something I didn't get?" hit `pay`; and
+ * "stop asking me, I already told you" hit `stop` and opted the customer out
+ * of a conversation they were in the middle of having.
+ *
+ * A question or a negation is never a menu selection. Someone asking why, or
+ * saying they have *not* done something, is raising a subject - and that is
+ * exactly the turn the model should be answering rather than a script.
+ */
+function readsAsSelection(raw: string, normalised: string): boolean {
+  // Checked against the raw text: the question mark is stripped by the time
+  // the normalised form exists, which is the one signal hardest to mistake.
+  if (raw.includes("?")) return false;
+  if (INTERROGATIVE.test(normalised)) return false;
+  if (NEGATION.test(normalised.replace(/\b(\w+)\s+t\b/g, "$1t"))) return false;
+  // Past about a phrase, it is prose. "Send me the payment link please" is
+  // six; an explanation of why they cannot pay is longer than that.
+  return normalised.split(" ").length <= 7;
 }
 
 /**

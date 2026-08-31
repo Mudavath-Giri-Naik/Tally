@@ -15,6 +15,7 @@
 import {
   providerForKey,
   isExhausted,
+  isUnusableResponse,
   type DecisionProvider,
   type AgentDecision,
   type AgentReply,
@@ -62,6 +63,9 @@ export class RotatingProvider implements DecisionProvider {
 
   private async run<T>(call: (p: DecisionProvider) => Promise<T>): Promise<T> {
     let lastError: unknown;
+    // One retry for the whole walk, not one per key: a bad sample is worth a
+    // second roll of the dice, but not four of them.
+    let retried = false;
 
     for (const key of this.keys) {
       const provider = await providerForKey(key);
@@ -78,7 +82,41 @@ export class RotatingProvider implements DecisionProvider {
         return result;
       } catch (err) {
         lastError = err;
-        if (!isExhausted(err)) throw err;
+
+        if (!isExhausted(err)) {
+          // Not the key's fault, so the pool cannot help - but it may not be
+          // the request's fault either. A model that returns malformed JSON or
+          // drops a required field has produced a bad sample, not a bad
+          // prompt, and the same call usually succeeds on a second attempt.
+          // Failing straight out turned one unlucky sample into a customer
+          // being answered with a holding line, so it is worth one retry
+          // before giving up on a question someone actually asked.
+          //
+          // Narrowly, though: a rejected request fails identically however
+          // many times it is sent, and burning the pool to rediscover that
+          // is how a bad prompt becomes an outage.
+          if (isUnusableResponse(err) && !retried) {
+            retried = true;
+            console.warn("[ai] response was unusable, retrying once", {
+              key: key.label,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            try {
+              const result = await call(provider);
+              this.name = provider.name;
+              this.model = provider.model;
+              if (!key.id.startsWith("env:")) void markUsed(key.id).catch(() => undefined);
+              return result;
+            } catch (again) {
+              lastError = again;
+              // Still unusable, and now it looks like the request rather than
+              // the sample. Fall through and raise it.
+              if (!isExhausted(again)) throw again;
+            }
+          } else {
+            throw err;
+          }
+        }
 
         const reason = err instanceof Error ? err.message : String(err);
         const retryAfterMs = (err as { retryAfterMs?: number }).retryAfterMs;

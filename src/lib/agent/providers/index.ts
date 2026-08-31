@@ -155,6 +155,25 @@ export function isExhausted(err: unknown): boolean {
   );
 }
 
+/**
+ * Did the model answer badly, or did it refuse the request?
+ *
+ * The difference decides whether trying again is worth anything. A response
+ * that is not JSON, is missing a required field, or is empty is one unlucky
+ * sample - the next one off the same key usually parses. A 400 is the request
+ * itself being wrong, and will be just as wrong the second time.
+ *
+ * Both providers word these the same way on purpose; this is the seam.
+ */
+export function isUnusableResponse(err: unknown): boolean {
+  const m = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+  return (
+    m.includes("failed validation") ||
+    m.includes("that was not json") ||
+    m.includes("returned no content")
+  );
+}
+
 export function selectedProviderName(): ProviderName | null {
   const explicit = optionalEnv("TALLY_LLM_PROVIDER")?.toLowerCase();
   if (explicit === "anthropic" || explicit === "gemini" || explicit === "groq") {
