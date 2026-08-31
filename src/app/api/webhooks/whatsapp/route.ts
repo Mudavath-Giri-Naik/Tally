@@ -188,9 +188,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     // message is answering can no longer be seen. That is what made a menu
     // choice fall through to the conversational agent: by the time the reply
     // was drafted, no menu appeared to be pending.
-    const pending = new Map<string, string | null>();
+    //
+    // Across every record, first answer wins: the question was asked once, to
+    // a person, and which of their records happens to hold it is bookkeeping.
+    let pending: string | null = null;
     for (const customer of customers) {
-      pending.set(customer.id, await pendingPrompt(customer.id).catch(() => null));
+      pending ??= await pendingPrompt(customer.id).catch(() => null);
     }
 
     // Every reply is recorded, not just an opt-out. Until now only STOP was
@@ -213,6 +216,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     // against Twilio's own id, which keeps retries harmless without letting
     // one thread's copy suppress another's.
     const messageSid = params.MessageSid ?? params.SmsMessageSid ?? null;
+
+    // The person, not the paperwork. `customers` is every record matching one
+    // phone number, and one human owns that phone whatever we have them filed
+    // under - so everything below that *changes state* runs per record, and
+    // everything that *sends a message* runs once, for this one.
+    const primary = customers[0];
+
+    // Twilio retries a webhook it believes failed. This one answered 200 in
+    // milliseconds and does its real work afterwards, so a retry is never a
+    // second message - it is the same message delivered again, and acting on
+    // it means the customer is answered twice.
+    if (messageSid) {
+      const ids = await eventIdsForCustomer(primary.id).catch(() => []);
+      const seen = await inboundAlreadyRecorded(messageSid, ids).catch(() => false);
+      if (seen) {
+        console.info("[whatsapp-in] ignoring a retry of a message already handled", {
+          sid: messageSid,
+        });
+        return twiml();
+      }
+    }
 
     for (const customer of customers) {
       const latest = await latestEventForCustomer(customer.id).catch(() => null);
@@ -262,36 +286,37 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Handing it to the conversational agent is what produced "let me know
     // once you complete the payment" to someone who had just said they had -
     // and it cannot know whether they really did, so it must not imply either.
+    //
+    // Sent once, not once per record. Looping over `customers` here is what
+    // put every reply on the customer's phone twice: two records, one number,
+    // two identical WhatsApp messages seconds apart - while the dashboard
+    // showed one, because each record's thread held only its own copy.
     if (intent.kind === "already_paid") {
       after(async () => {
-        for (const customer of customers) {
-          await sendWhatsApp({
-            merchantName: merchant?.business_name ?? "the business",
-            recipient: { name: customer.name, email: customer.email, phone: customer.phone },
-            subject: null,
-            body:
-              "Thanks for letting us know - we have paused the reminders and " +
-              "someone is checking this against our records now. " +
-              "You will not hear from us about it again unless we find a problem.",
-            link: null,
-          }).catch(() => undefined);
-        }
+        await sendWhatsApp({
+          merchantName: merchant?.business_name ?? "the business",
+          recipient: { name: primary.name, email: primary.email, phone: primary.phone },
+          subject: null,
+          body:
+            "Thanks for letting us know - we have paused the reminders and " +
+            "someone is checking this against our records now. " +
+            "You will not hear from us about it again unless we find a problem.",
+          link: null,
+        }).catch(() => undefined);
       });
       return twiml();
     }
 
     if (intent.kind !== "opt_out") {
       after(async () => {
-        for (const customer of customers) {
-          await replyToCustomer(customer, body, pending.get(customer.id) ?? null).catch((err) => {
-            // The inbound message is already recorded either way, so a failed
-            // reply degrades to "a human answers this one".
-            console.error("[whatsapp-in] reply failed", {
-              customer: customer.id,
-              error: err instanceof Error ? err.message : String(err),
-            });
+        await replyToCustomer(primary, customers, body, pending).catch((err) => {
+          // The inbound message is already recorded either way, so a failed
+          // reply degrades to "a human answers this one".
+          console.error("[whatsapp-in] reply failed", {
+            customer: primary.id,
+            error: err instanceof Error ? err.message : String(err),
           });
-        }
+        });
       });
     }
 
@@ -403,8 +428,40 @@ export async function GET(): Promise<NextResponse> {
  * Runs after the webhook has answered Twilio, so nothing here is on the
  * critical path and a failure costs a reply rather than a 500.
  */
+/**
+ * Write one outbound turn into every thread it belongs to.
+ *
+ * The message went out once - a person has one phone - but each customer
+ * record builds its own thread from its own events, so a turn recorded
+ * against only one of them leaves the others showing half a conversation.
+ * `anchors` lets a caller pin a specific record to a specific event, which
+ * a booked promise-to-pay needs and nothing else does.
+ */
+async function recordOnEveryThread(
+  customers: Customer[],
+  make: (anchor: RecoveryEvent) => Omit<
+    Parameters<typeof recordAction>[0],
+    "eventId" | "merchantId"
+  >,
+  anchors?: Map<string, string>,
+): Promise<void> {
+  for (const customer of customers) {
+    const latest = await latestEventForCustomer(customer.id).catch(() => null);
+    if (!latest) continue;
+    await recordAction({
+      ...make(latest),
+      eventId: anchors?.get(customer.id) ?? latest.id,
+      merchantId: customer.merchant_id,
+    }).catch((err) => {
+      // A missing transcript line must not fail a message that already went.
+      console.error("[whatsapp-in] could not record the reply", err);
+    });
+  }
+}
+
 async function replyToCustomer(
   customer: Customer,
+  everyone: Customer[],
   body: string,
   pending: string | null,
 ): Promise<void> {
@@ -437,7 +494,7 @@ async function replyToCustomer(
   });
 
   if (move.kind !== "converse") {
-    await performScriptedMove(move, merchant, customer, events, body);
+    await performScriptedMove(move, merchant, customer, everyone, events, body);
     return;
   }
 
@@ -499,13 +556,9 @@ async function replyToCustomer(
   });
 
   // Attach the turn to the event the conversation is about, so the thread and
-  // the recovery it belongs to stay in one place in the audit trail.
-  const anchor = events[0];
-  if (!anchor) return;
-
-  await recordAction({
-    eventId: anchor.id,
-    merchantId: customer.merchant_id,
+  // the recovery it belongs to stay in one place in the audit trail - in every
+  // thread this person has, since the message reached all of them at once.
+  await recordOnEveryThread(everyone, (anchor) => ({
     channel: "whatsapp",
     message: `${REPLY_PREFIX}${reply.message}`,
     outcome: result.ok ? "sent" : "failed",
@@ -528,7 +581,7 @@ async function replyToCustomer(
           ? "reply_needs_human"
           : undefined,
     },
-  });
+  }));
 }
 
 /**
@@ -542,6 +595,7 @@ async function performScriptedMove(
   move: Exclude<DialogueMove, { kind: "converse" }>,
   merchant: Merchant,
   customer: Customer,
+  everyone: Customer[],
   events: RecoveryEvent[],
   body: string,
 ): Promise<void> {
@@ -551,7 +605,12 @@ async function performScriptedMove(
     // Reached only when a menu number selected it; a typed STOP was already
     // handled inline. Either way the customer is not messaged again, so there
     // is no confirmation to send.
-    const stopped = await optOutCustomer(customer.id);
+    //
+    // Every record, not just this one. Opting out the record we happened to
+    // converse as leaves the others free to be chased, which is the same
+    // person still being messaged after asking us to stop.
+    let stopped = 0;
+    for (const record of everyone) stopped += await optOutCustomer(record.id);
     if (anchor) {
       await recordAction({
         eventId: anchor.id,
@@ -638,31 +697,36 @@ async function performScriptedMove(
     link: null,
   });
 
-  const eventId = bookedEventId ?? anchor?.id;
-  if (!eventId) return;
+  // The promise was booked once, on this record, so its own turn anchors
+  // there; every other record anchors on its newest case as usual.
+  const anchors = bookedEventId
+    ? new Map([[customer.id, bookedEventId]])
+    : undefined;
 
-  await recordAction({
-    eventId,
-    merchantId: customer.merchant_id,
-    channel: "whatsapp",
-    message: `${REPLY_PREFIX}${text}`,
-    outcome: result.ok ? "sent" : "failed",
-    response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
-    sentAt: new Date().toISOString(),
-    decision: {
-      root_cause: anchor?.reason ?? "unknown",
-      intervention:
-        prompt === "reply_needs_human" || prompt === "customer_claims_paid"
-          ? "escalate_human"
-          : "send_message",
+  await recordOnEveryThread(
+    everyone,
+    (latest) => ({
       channel: "whatsapp",
-      rationale:
-        move.kind === "promise"
-          ? `Customer committed to pay on ${move.dueDate}. Tracked as a promise-to-pay; no chasing until then.`
-          : `Scripted reply. Awaiting: ${prompt ?? "nothing in particular"}.`,
-      // "schedule" rather than "agent": no model chose this, a rule did.
-      source: "schedule",
-      guardrail: prompt,
-    },
-  });
+      message: `${REPLY_PREFIX}${text}`,
+      outcome: result.ok ? "sent" : "failed",
+      response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
+      sentAt: new Date().toISOString(),
+      decision: {
+        root_cause: (anchor ?? latest).reason ?? "unknown",
+        intervention:
+          prompt === "reply_needs_human" || prompt === "customer_claims_paid"
+            ? "escalate_human"
+            : "send_message",
+        channel: "whatsapp",
+        rationale:
+          move.kind === "promise"
+            ? `Customer committed to pay on ${move.dueDate}. Tracked as a promise-to-pay; no chasing until then.`
+            : `Scripted reply. Awaiting: ${prompt ?? "nothing in particular"}.`,
+        // "schedule" rather than "agent": no model chose this, a rule did.
+        source: "schedule",
+        guardrail: prompt,
+      },
+    }),
+    anchors,
+  );
 }
