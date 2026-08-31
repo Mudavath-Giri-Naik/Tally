@@ -22,6 +22,8 @@ import { NextResponse, after } from "next/server";
 import twilio from "twilio";
 import { optionalEnv, isConfigured, PUBLIC_URL } from "@/lib/env";
 import { classifyReply, stripChannelPrefix } from "@/lib/inbound";
+import { INBOUND_PREFIX } from "@/lib/board";
+import { stripInventedLinks, dropUnbackedLinkPromise } from "@/lib/agent/links";
 import { normalisePhone } from "@/lib/razorpay";
 import {
   findCustomersByPhone,
@@ -29,6 +31,8 @@ import {
   latestEventForCustomer,
   ingestEvent,
   recordAction,
+  updateEvent,
+  openEventsForCustomer,
 } from "@/lib/events";
 import { listMerchants, whatsappNumber, getMerchant } from "@/lib/merchants";
 import { sendWhatsApp } from "@/lib/channels";
@@ -187,6 +191,39 @@ export async function POST(request: Request): Promise<NextResponse> {
       pending.set(customer.id, await pendingPrompt(customer.id).catch(() => null));
     }
 
+    // Every reply is recorded, not just an opt-out. Until now only STOP was
+    // written down, so a customer saying "I've paid" was read, acted on and
+    // then discarded - the panel showed our side of a conversation with the
+    // other half missing, and the agent's own history had no record of what
+    // it was answering.
+    //
+    // After `pending` is read, deliberately: recording makes this the newest
+    // row, and the question it answers must be found first.
+    for (const customer of customers) {
+      const latest = await latestEventForCustomer(customer.id).catch(() => null);
+      if (!latest) continue;
+      await recordAction({
+        eventId: latest.id,
+        merchantId: customer.merchant_id,
+        channel: "whatsapp",
+        message: `${INBOUND_PREFIX}${body}`,
+        outcome: "no_action",
+        response: params.MessageSid ?? params.SmsMessageSid ?? null,
+        sentAt: new Date().toISOString(),
+        decision: {
+          root_cause: latest.reason ?? "unknown",
+          intervention: "stop",
+          channel: "whatsapp",
+          rationale: `Customer replied: ${intent.kind.replace(/_/g, " ")}.`,
+          source: "customer",
+          guardrail: "inbound_reply",
+        },
+      }).catch((err) => {
+        // Losing the transcript must not lose the reply itself.
+        console.error("[whatsapp-in] could not record inbound", err);
+      });
+    }
+
     for (const customer of customers) {
       await handle(customer, intent, body, params);
     }
@@ -197,6 +234,28 @@ export async function POST(request: Request): Promise<NextResponse> {
     //
     // An opt-out is never answered. Confirming a STOP is still a message to
     // someone who just asked for no more messages.
+    // A paid claim is answered by the fixed line below, never by the model.
+    // Handing it to the conversational agent is what produced "let me know
+    // once you complete the payment" to someone who had just said they had -
+    // and it cannot know whether they really did, so it must not imply either.
+    if (intent.kind === "already_paid") {
+      after(async () => {
+        for (const customer of customers) {
+          await sendWhatsApp({
+            merchantName: merchant?.business_name ?? "the business",
+            recipient: { name: customer.name, email: customer.email, phone: customer.phone },
+            subject: null,
+            body:
+              "Thanks for letting us know - we have paused the reminders and " +
+              "someone is checking this against our records now. " +
+              "You will not hear from us about it again unless we find a problem.",
+            link: null,
+          }).catch(() => undefined);
+        }
+      });
+      return twiml();
+    }
+
     if (intent.kind !== "opt_out") {
       after(async () => {
         for (const customer of customers) {
@@ -242,6 +301,44 @@ async function handle(
   body: string,
   params: Record<string, string>,
 ): Promise<void> {
+  /**
+   * Someone saying they have already paid is handed to a person, and the
+   * chasing stops while that is checked.
+   *
+   * This was classified correctly all along and then acted on by nothing -
+   * handle() returned early for everything except an opt-out, so the claim
+   * fell through to the conversational agent, which asked a customer who had
+   * just told us they paid to pay again. Whether they really did is not
+   * something to decide from a WhatsApp message; it is something to stop for.
+   */
+  if (intent.kind === "already_paid") {
+    const open = await openEventsForCustomer(customer.id).catch(() => []);
+    for (const event of open) {
+      await updateEvent(event.id, {
+        status: "stopped",
+        stop_reason: "customer_claims_paid",
+      }).catch(() => undefined);
+      await recordAction({
+        eventId: event.id,
+        merchantId: customer.merchant_id,
+        channel: null,
+        message: null,
+        outcome: "escalated",
+        decision: {
+          root_cause: event.reason ?? "unknown",
+          intervention: "escalate_human",
+          channel: null,
+          rationale:
+            `The customer says they have already paid ("${intent.matched}"). ` +
+            "Automated chasing is stopped until someone confirms it against the account.",
+          source: "guardrail",
+          guardrail: "customer_claims_paid",
+        },
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
   if (intent.kind !== "opt_out") return;
 
   const messageSid = params.MessageSid ?? params.SmsMessageSid ?? null;
@@ -252,7 +349,7 @@ async function handle(
       eventId: latest.id,
       merchantId: customer.merchant_id,
       channel: "whatsapp",
-      message: `[inbound] ${body}`,
+      message: null,
       outcome: "no_action",
       response: messageSid,
       sentAt: new Date().toISOString(),
@@ -367,7 +464,11 @@ async function replyToCustomer(
       phone: customer.phone,
     },
     subject: null,
-    body: reply.message,
+    // This path had no link guard at all, which is how a reply came to say
+    // "using the link above" about a link that was never sent - the earlier
+    // send had failed to create one. It carries no link of its own, so any
+    // URL here is invented and any promise of one is unbacked.
+    body: dropUnbackedLinkPromise(stripInventedLinks(reply.message, null), null),
     // The agent puts a link in the text itself when the conversation calls for
     // one; appending a second copy would read as a bot repeating itself.
     link: null,

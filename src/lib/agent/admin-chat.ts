@@ -21,7 +21,7 @@ import { updateMerchantSettings, razorpayCredentials } from "../merchants";
 import { createRetryLink, adminLinkReference } from "../razorpay";
 import { applyAdminOverride, AdminActionError, recordAction, getEvent } from "../events";
 import { liveTransport } from "./worker";
-import { stripInventedLinks } from "./links";
+import { stripInventedLinks, dropUnbackedLinkPromise } from "./links";
 import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult } from "../channels";
 import { profileFor } from "../classify";
@@ -389,7 +389,7 @@ async function sendNow(
   // invents one - so the link is fetched first, and then anything in the body
   // that is not it is stripped out.
   const { url: link, error: linkError } = await paymentLinkFor(merchant, row, customer);
-  const safeBody = stripInventedLinks(body, link);
+  const safeBody = dropUnbackedLinkPromise(stripInventedLinks(body, link), link);
 
   const message = {
     merchantName: merchant.business_name,

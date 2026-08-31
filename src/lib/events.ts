@@ -132,6 +132,27 @@ export async function otherOpenEventsForCustomer(
 }
 
 /**
+ * Every case still being chased for one customer.
+ *
+ * Unlike otherOpenEventsForCustomer this is not scoped to a merchant or
+ * excluding anything: it answers "what is still running against this person",
+ * which is what a reply from them applies to - they are not telling us about
+ * one event id, they are telling us about their account.
+ */
+export async function openEventsForCustomer(
+  customerId: string,
+): Promise<RecoveryEvent[]> {
+  const { data, error } = await db()
+    .from("events")
+    .select("*")
+    .eq("customer_id", customerId)
+    .in("status", ["queued", "processing"])
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Could not load open events: ${error.message}`);
+  return (data ?? []) as RecoveryEvent[];
+}
+
+/**
  * Use case 14: how many times has this customer failed before?
  *
  * After a few billing cycles of the same failure, automated nudging has
@@ -597,7 +618,11 @@ export async function markRecoveredByReference(
     .eq("merchant_id", merchantId)
     .eq("customer_id", refs.customerId)
     .eq("amount", amount)
-    .in("status", ["queued", "processing"])
+    // Including "stopped" on purpose, and matching the reference path above.
+    // A case that was escalated or capped and *then* paid is exactly the one
+    // a merchant most needs closed - leaving it open was why the board still
+    // showed money owed that had already arrived.
+    .in("status", ["queued", "processing", "stopped"])
     .select();
   if (error) {
     throw new Error(`Could not close the customer's open case: ${error.message}`);

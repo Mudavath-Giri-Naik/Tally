@@ -29,7 +29,7 @@ import {
 import { menuBlock } from "../menu";
 import { createRetryLink, retryLinkReference } from "../razorpay";
 import { profileFor } from "../classify";
-import { stripInventedLinks } from "./links";
+import { stripInventedLinks, dropUnbackedLinkPromise } from "./links";
 import { workflowFor, workflowEnabled, WORKFLOWS } from "../workflows";
 import { decide } from "./decide";
 import { preflight, type DecisionContext } from "./rules";
@@ -360,7 +360,10 @@ async function processEvent(
     // chasing a failed payment is the worst copy this system can produce - it
     // looks exactly like the phishing it would be mistaken for. Stripped here
     // rather than trusted there.
-    const safeMessage = stripInventedLinks(decision.message, link);
+    const safeMessage = dropUnbackedLinkPromise(
+      stripInventedLinks(decision.message, link),
+      link,
+    );
 
     // First WhatsApp contact carries the menu, so the customer has a way in
     // that does not require them to compose a sentence. Only the first: a menu

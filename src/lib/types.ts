@@ -132,7 +132,12 @@ export interface DecisionRecord {
   guardrail?: string;
   /** Where the decision came from - the model, a rule that pre-empted it, or
    *  a merchant clicking a kebab-menu action rather than waiting on either. */
-  source: "agent" | "guardrail" | "schedule" | "admin";
+  /**
+   * Who produced this row. "customer" is the one that is not a decision at
+   * all - it is their own words, recorded so the trail holds both halves of
+   * a conversation rather than only what we said into it.
+   */
+  source: "agent" | "guardrail" | "schedule" | "admin" | "customer";
   model?: string;
   scheduled_for?: string | null;
   /** Which override this was, when source is "admin" - see AdminActionId. */

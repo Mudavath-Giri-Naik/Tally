@@ -63,6 +63,15 @@ const STOP_PHRASES: RegExp[] = [
 const ALREADY_PAID_PHRASES: RegExp[] = [
   /\b(?:already|alredy)\s+(?:paid|payed|done|made)\b/,
   /\b(?:i|we)\s+(?:have\s+)?(?:paid|payed)\b/,
+  // The contracted forms. At least as common as the long ones, and without
+  // them "I've paid" fell through to the conversational agent, which then
+  // asked someone who had just said they paid to pay again.
+  // "I've paid". normalise() turns an apostrophe into a space, so by the time
+  // this runs the text reads "i ve paid" - hence the whitespace class rather
+  // than an apostrophe. Without it this fell through to the conversational
+  // agent, which asked someone who had just said they paid to pay again.
+  /\b(?:i|we)['’\s]*(?:ve|v)\s+(?:already\s+)?(?:paid|payed)\b/,
+  /\b(?:amount|money)\s+(?:is\s+)?(?:sent|transferred|done)\b/,
   /\bpayment\s+(?:is\s+)?(?:done|completed|successful)\b/,
   /\bpaid\s+(?:it\s+)?(?:already|yesterday|today)\b/,
   /\b(?:kar|ho)\s*(?:diya|gaya)\s*(?:hai)?\b.*\bpayment\b/,
@@ -239,7 +248,10 @@ export function extractDueDate(
 function normalise(body: string): string {
   return body
     .toLowerCase()
-    .replace(/[.,!?;:"'()\[\]]/g, " ")
+    // The curly apostrophe too: every phone keyboard produces it by default,
+    // so leaving it out meant "I’ve paid" and "I've paid" normalised to two
+    // different strings and only one of them was ever matched.
+    .replace(/[.,!?;:"'’()\[\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

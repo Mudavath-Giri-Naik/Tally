@@ -885,7 +885,7 @@ as $fn$
             and e.stop_reason = 'admin_written_off'
              then 'written_off'
            when e.status in ('stopped', 'unrecoverable')
-            and e.stop_reason in ('risk_flagged', 'repeat_failure_across_cycles', 'admin_escalated')
+            and e.stop_reason in ('risk_flagged', 'repeat_failure_across_cycles', 'admin_escalated', 'customer_claims_paid')
              then 'needs_human'
            when lc.channel = 'voice' then 'escalated_voice'
            when e.status in ('stopped', 'unrecoverable') then 'stopped'

@@ -1,6 +1,10 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { stripInventedLinks, hasInventedLink } from "../src/lib/agent/links";
+import {
+  stripInventedLinks,
+  hasInventedLink,
+  dropUnbackedLinkPromise,
+} from "../src/lib/agent/links";
 
 const REAL = "https://rzp.io/i/AbCd1234";
 
@@ -51,5 +55,40 @@ describe("stripping links the model invented", () => {
   test("does not leave the scaffolding a removed link sat in", () => {
     const out = stripInventedLinks("Complete it here:  https://fake.example/x", null);
     assert.ok(!out.endsWith(":"), `left a dangling colon: ${JSON.stringify(out)}`);
+  });
+});
+
+describe("promising a link that was never attached", () => {
+  test("drops the sentence when no link exists", () => {
+    // This shipped to a real customer: link creation was failing, the copy
+    // still said "the link below", and nothing was appended.
+    const body =
+      "Hi Girish, we noticed you didn't get a chance to finish your order. " +
+      "You can complete your payment securely using the link below. " +
+      "We're here if you have any questions!";
+    const out = dropUnbackedLinkPromise(body, null);
+    assert.ok(!/link below/i.test(out), `still promises a link: ${out}`);
+    assert.ok(out.includes("Hi Girish"), "the rest of the message survives");
+    assert.ok(out.includes("any questions"), "and so does the closing line");
+  });
+
+  test("leaves the message alone when a link really is attached", () => {
+    const body = "Complete your payment using the link below.";
+    assert.equal(dropUnbackedLinkPromise(body, "https://rzp.io/i/AbCd"), body);
+  });
+
+  test("catches a follow-up referring back to a link that never arrived", () => {
+    const out = dropUnbackedLinkPromise(
+      "Please let me know once you complete the ₹1,999 payment using the link above. Thanks!",
+      null,
+    );
+    assert.ok(!/link above/i.test(out));
+    assert.ok(out.includes("Thanks!"));
+  });
+
+  test("says something true when the promise was the whole message", () => {
+    const out = dropUnbackedLinkPromise("Please pay using the link below.", null);
+    assert.ok(out.length > 0, "never sends an empty message");
+    assert.ok(!/link below/i.test(out));
   });
 });

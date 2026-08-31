@@ -268,6 +268,7 @@ export function WorkflowPills({ enabled, slug }: { enabled: WorkflowId[]; slug: 
  */
 export const STOP_REASON_LABEL: Record<string, string> = {
   repeat_failure_across_cycles: "Failed repeatedly - handed to a human",
+  customer_claims_paid: "Customer says they already paid - check the account",
   risk_flagged: "Blocked by fraud checks - handed to a human",
   admin_escalated: "Escalated by an admin",
   customer_opted_out: "Customer opted out",
