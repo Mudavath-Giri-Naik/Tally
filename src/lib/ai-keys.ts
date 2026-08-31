@@ -72,25 +72,71 @@ export async function usableKeys(order: ProviderName[]): Promise<AiKey[]> {
   const keys: AiKey[] = [];
 
   for (const row of rows) {
-    try {
-      keys.push({
-        id: row.id,
-        provider: row.provider as ProviderName,
-        label: row.label,
-        apiKey: decrypt(row.api_key, "ai_api_key"),
-        model: row.model,
-      });
-    } catch {
-      // Encrypted under a rotated encryption key. Skipping is right: it is
-      // unusable, and failing the whole request over one bad row would take
-      // the working keys down with it.
-        console.error("[ai-keys] could not decrypt key", { id: row.id, label: row.label });
+    const plain = readKey(row);
+    if (!plain) {
+      // Ciphertext under an encryption key we no longer hold. Unusable, and
+      // failing the whole request over one bad row would take the working
+      // keys down with it - so it is skipped and reported by listKeys.
+      console.error("[ai-keys] could not decrypt key", { id: row.id, label: row.label });
+      continue;
     }
+    keys.push({
+      id: row.id,
+      provider: row.provider as ProviderName,
+      label: row.label,
+      apiKey: plain,
+      model: row.model,
+    });
   }
 
   // Provider order is the caller's preference, which the SQL cannot express.
   return keys.sort((a, b) => order.indexOf(a.provider) - order.indexOf(b.provider));
 }
+
+/**
+ * The key behind a row, whether or not it was stored encrypted.
+ *
+ * Pasting a key straight into the SQL editor is the obvious thing to do and
+ * there is no way to encrypt one there - pgcrypto has no AES-GCM - so a key
+ * put in by hand is plaintext, and the first version of this simply refused
+ * it. Refusing is the wrong end of the trade: the key still exists in the
+ * database either way, so rejecting it protects nothing and only breaks the
+ * pool.
+ *
+ * A value that is not in our ciphertext format is therefore taken as
+ * plaintext and used, then re-encrypted in place so it sits unprotected only
+ * until the first call that needs it. Something that *is* in the format but
+ * will not open is a different matter - that is a key encrypted under an
+ * encryption key we no longer have, and guessing is not available.
+ */
+function readKey(row: KeyRow): string | null {
+  if (row.api_key.startsWith(`${CIPHER_PREFIX}:`)) {
+    try {
+      return decrypt(row.api_key, "ai_api_key");
+    } catch {
+      return null;
+    }
+  }
+
+  const plain = row.api_key.trim();
+  if (plain === "") return null;
+
+  // Not awaited: the call that needs this key should not wait on tidying up,
+  // and a failed upgrade simply leaves it to the next read.
+  void db()
+    .from("ai_keys")
+    .update({ api_key: encrypt(plain, "ai_api_key") })
+    .eq("id", row.id)
+    .then(({ error }) => {
+      if (error) console.error("[ai-keys] could not encrypt stored key", error.message);
+      else console.info("[ai-keys] encrypted a key that was stored as plaintext", row.label);
+    });
+
+  return plain;
+}
+
+/** The marker our own ciphertext carries. See lib/crypto. */
+const CIPHER_PREFIX = "v1";
 
 /**
  * A key the provider has told us is spent, parked until it is worth trying.
@@ -217,11 +263,17 @@ export async function listKeys(): Promise<
 
   return (data ?? []).map((k) => {
     const { api_key, ...rest } = k as typeof k & { api_key: string };
+    // The same rule the pool applies: plaintext is usable (and gets upgraded
+    // on first use), only unopenable ciphertext is not.
     let readable = true;
-    try {
-      decrypt(api_key, "ai_api_key");
-    } catch {
-      readable = false;
+    if (api_key.startsWith(`${CIPHER_PREFIX}:`)) {
+      try {
+        decrypt(api_key, "ai_api_key");
+      } catch {
+        readable = false;
+      }
+    } else {
+      readable = api_key.trim() !== "";
     }
     return { ...rest, readable };
   });
