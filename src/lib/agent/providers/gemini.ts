@@ -107,6 +107,7 @@ const COMMAND_SCHEMA = {
         "send_whatsapp",
         "send_email",
         "place_call",
+        "get_payment_link",
         "set_contact_window",
         "mark_paid",
         "pause_outreach",

@@ -112,8 +112,14 @@ function systemPrompt(): string {
     "verbatim - warm, short, never blaming the customer for a failure that was",
     "not theirs. For place_call, `message` is the script to read aloud.",
     "",
-    "Never write a URL. A real payment link is created and appended for you,",
-    "and any link you invent is stripped out before the message is sent.",
+    "Never put a URL in `message`. A real Razorpay link is created and",
+    "appended for you, and any link you write there is stripped out before",
+    "the customer sees it. This is about the customer's message only - you",
+    "are free to quote a link back to the admin in `reply`.",
+    "",
+    "If the admin asks for the payment link itself, use get_payment_link.",
+    "That creates a real one and puts it in your reply - do not refuse, and",
+    "do not make one up.",
     "",
     "For set_contact_window give window_start and window_end as HH:MM, 24-hour.",
     "For snooze give snooze_until as YYYY-MM-DD.",
@@ -203,6 +209,44 @@ async function recordTurn(
   }
 }
 
+/**
+ * The real Razorpay link for this case, or why there is not one.
+ *
+ * A failure here used to be swallowed: the send went out with no link at
+ * all, which reads to a customer as a reminder with no way to act on it, and
+ * to the admin as nothing having gone wrong.
+ */
+async function paymentLinkFor(
+  merchant: Merchant,
+  row: BoardRow,
+  customer: Customer | null,
+): Promise<{ url: string | null; error: string | null }> {
+  if (!row.amount || row.amount <= 0) {
+    return { url: null, error: "This case has no amount, so there is nothing to collect." };
+  }
+  try {
+    const event = await getEvent(merchant.id, row.event_id);
+    if (!event) return { url: null, error: "I could not find this case to bill against." };
+    const url = await liveTransport.createLink(merchant, event, {
+      name: customer?.name ?? null,
+      email: customer?.email ?? null,
+      phone: customer?.phone ?? null,
+    });
+    if (!url) {
+      return {
+        url: null,
+        error: "Razorpay would not issue a payment link for this one.",
+      };
+    }
+    return { url, error: null };
+  } catch (err) {
+    return {
+      url: null,
+      error: explainFailure(err instanceof Error ? err.message : String(err)),
+    };
+  }
+}
+
 /** Send on one channel now, and record it as an admin-initiated action. */
 async function sendNow(
   channel: "email" | "whatsapp" | "voice",
@@ -233,22 +277,7 @@ async function sendNow(
   // admin-triggered send had nothing to link to, which is exactly when a model
   // invents one - so the link is fetched first, and then anything in the body
   // that is not it is stripped out.
-  let link: string | null = null;
-  try {
-    const event = await getEvent(merchant.id, row.event_id);
-    if (event) {
-      link = await liveTransport.createLink(merchant, event, {
-        name: customer?.name ?? null,
-        email: customer?.email ?? null,
-        phone: customer?.phone ?? null,
-      });
-    }
-  } catch {
-    // A missing link is a degraded message, not a failed one - same call the
-    // worker makes. The stripping below then removes any invented stand-in.
-    link = null;
-  }
-
+  const { url: link, error: linkError } = await paymentLinkFor(merchant, row, customer);
   const safeBody = stripInventedLinks(body, link);
 
   const message = {
@@ -295,12 +324,17 @@ async function sendNow(
     },
   });
 
+  // A message that went out without the link it should have carried is a
+  // half-success, and saying so is the point of the chat.
+  const note =
+    result.ok && !link && linkError ? ` It went without a payment link: ${linkError}` : "";
+
   return {
     ok: result.ok,
-    error: result.ok ? null : explainFailure(result.error ?? "The provider refused it."),
-    sentBody: link ? `${safeBody}
-
-${link}` : safeBody,
+    error: result.ok
+      ? note.trim() || null
+      : explainFailure(result.error ?? "The provider refused it."),
+    sentBody: link ? `${safeBody}\n\n${link}` : safeBody,
   };
 }
 
@@ -400,6 +434,28 @@ async function respond(input: {
           performed: sent.ok,
           error: sent.error,
           sentBody: sent.ok ? sent.sentBody : null,
+        };
+      }
+
+      case "get_payment_link": {
+        // The link is created at send time, so the agent has genuinely never
+        // seen one when it is asked. Rather than refusing, it asks for one to
+        // be made - which is what an admin wanting to paste it somewhere is
+        // asking for anyway.
+        const link = await paymentLinkFor(merchant, row, customer);
+        if (!link.url) {
+          return {
+            reply: command.reply,
+            action: command.action,
+            performed: false,
+            error: link.error ?? "I could not create a payment link for this case.",
+          };
+        }
+        return {
+          reply: `${command.reply}\n\n${link.url}`,
+          action: command.action,
+          performed: true,
+          error: null,
         };
       }
 
