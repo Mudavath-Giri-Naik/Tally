@@ -10,11 +10,17 @@
  *   npm run ai:key -- add groq "groq personal" gsk_xxx
  *   npm run ai:key -- add groq "groq backup" gsk_yyy --priority 200
  *   npm run ai:key -- add gemini "gemini free" AIza... --model gemini-3.5-flash
+ *   npm run ai:key -- sql groq "groq personal" gsk_xxx   # prints an INSERT
  *   npm run ai:key -- disable <id>
  *   npm run ai:key -- wake <id>
  */
 import { addKey, listKeys, isProviderName } from "../src/lib/ai-keys";
 import { db } from "../src/lib/supabase";
+
+/** Single-quote a SQL string literal, doubling any quote inside it. */
+function quote(v: string): string {
+  return `'${v.replace(/'/g, "''")}'`;
+}
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -65,6 +71,34 @@ async function main() {
     // The key itself is never echoed, not even partially - a terminal
     // scrollback is one of the easier places to leak one from.
     console.log(`Added ${provider} key "${label}".`);
+    return;
+  }
+
+  if (command === "sql") {
+    /**
+     * The same insert, printed rather than run.
+     *
+     * There is no SQL expression that could replace this: the column holds
+     * AES-256-GCM ciphertext and pgcrypto has no GCM mode, so the value has
+     * to be produced here. What is printed is already encrypted - the key
+     * itself never appears in the statement.
+     */
+    const [provider, label, apiKey] = rest;
+    if (!isProviderName(provider) || !label || !apiKey) {
+      throw new Error(
+        'Usage: npm run ai:key -- sql <groq|gemini|anthropic> "<label>" <key> [--model m] [--priority n]',
+      );
+    }
+    const { encrypt } = await import("../src/lib/crypto");
+    const cipher = encrypt(apiKey, "ai_api_key");
+    const model = flag("model");
+    const priority = flag("priority") ?? "100";
+    console.log(
+      `insert into ai_keys (provider, label, api_key, model, priority) values
+` +
+        `  ('${provider}', ${quote(label)}, '${cipher}', ` +
+        `${model ? quote(model) : "null"}, ${Number(priority)});`,
+    );
     return;
   }
 
