@@ -104,7 +104,7 @@ export class RotatingProvider implements DecisionProvider {
  * model at all. That is why this never throws for want of a key.
  */
 export async function providerFor(
-  merchant?: { ai_provider?: string | null } | null,
+  merchant?: { ai_provider?: string | null; ai_model?: string | null } | null,
 ): Promise<DecisionProvider | null> {
   const order = providerOrder(merchant?.ai_provider);
 
@@ -126,5 +126,15 @@ export async function providerFor(
   // operator's stated intent, and .env is what a deployment had before it.
   const all = [...keys, ...envKeys(order)];
   if (all.length === 0) return null;
-  return new RotatingProvider(all);
+
+  // A merchant's chosen model applies only to the provider they chose it
+  // for - carrying "llama-3.3-70b" across to Gemini during a failover would
+  // ask for a model that does not exist there.
+  const chosen = merchant?.ai_model?.trim();
+  const withModel =
+    chosen && order.length > 0
+      ? all.map((k) => (k.provider === order[0] ? { ...k, model: chosen } : k))
+      : all;
+
+  return new RotatingProvider(withModel);
 }

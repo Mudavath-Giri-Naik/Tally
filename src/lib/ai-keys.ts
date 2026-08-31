@@ -182,7 +182,15 @@ export async function addKey(input: {
   if (error) throw new Error(`Could not store that key: ${error.message}`);
 }
 
-/** What the operator can see about the pool, without decrypting anything. */
+/**
+ * What the operator can see about the pool.
+ *
+ * Each key is decrypted purely to find out whether it can be - a key stored
+ * as plaintext, or under a rotated encryption key, is skipped silently at the
+ * moment it is needed and is otherwise indistinguishable from a working one.
+ * A pool that lists four healthy keys and has none is the worst version of
+ * this feature, so the check is done here where somebody is looking.
+ */
 export async function listKeys(): Promise<
   Array<{
     id: string;
@@ -194,13 +202,27 @@ export async function listKeys(): Promise<
     cooldown_until: string | null;
     last_error: string | null;
     last_used_at: string | null;
+    /** False when the stored value cannot be decrypted, so it can never be used. */
+    readable: boolean;
   }>
 > {
   const { data, error } = await db()
     .from("ai_keys")
-    .select("id, provider, label, model, priority, active, cooldown_until, last_error, last_used_at")
+    .select(
+      "id, provider, label, model, priority, active, cooldown_until, last_error, last_used_at, api_key",
+    )
     .order("provider", { ascending: true })
     .order("priority", { ascending: true });
   if (error) throw new Error(`Could not list the model keys: ${error.message}`);
-  return data ?? [];
+
+  return (data ?? []).map((k) => {
+    const { api_key, ...rest } = k as typeof k & { api_key: string };
+    let readable = true;
+    try {
+      decrypt(api_key, "ai_api_key");
+    } catch {
+      readable = false;
+    }
+    return { ...rest, readable };
+  });
 }

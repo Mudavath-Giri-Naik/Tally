@@ -55,6 +55,7 @@ export default async function SettingsPage({
           channels_enabled: merchant.channels_enabled,
           workflows_enabled: pub.workflows_enabled,
           ai_provider: merchant.ai_provider ?? null,
+          ai_model: merchant.ai_model ?? null,
           active: merchant.active,
         }}
       />

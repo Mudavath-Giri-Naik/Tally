@@ -29,6 +29,7 @@ export function makeMerchant(over: Partial<Merchant> = {}): Merchant {
       "overdue_invoice",
     ],
     ai_provider: null,
+    ai_model: null,
   active: true,
     created_at: "2026-01-01T00:00:00Z",
     ...over,

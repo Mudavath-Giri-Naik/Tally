@@ -36,6 +36,18 @@ async function main() {
       console.log("No keys in the pool. The environment's keys are used instead.");
       return;
     }
+    const broken = keys.filter((k) => !k.readable);
+    if (broken.length > 0) {
+      console.log(
+        `
+${broken.length} key(s) cannot be decrypted and will never be used.
+` +
+          `A key inserted as plaintext looks fine in the table and fails only when
+` +
+          `it is needed. Re-add them:  npm run ai:key -- add <provider> "<label>" <key>
+`,
+      );
+    }
     console.table(
       keys.map((k) => ({
         id: k.id.slice(0, 8),
@@ -43,11 +55,13 @@ async function main() {
         label: k.label,
         model: k.model ?? "(default)",
         priority: k.priority,
-        state: !k.active
-          ? "disabled"
-          : k.cooldown_until && Date.parse(k.cooldown_until) > Date.now()
-            ? `cooling until ${k.cooldown_until.slice(11, 16)}`
-            : "ready",
+        state: !k.readable
+          ? "UNREADABLE - re-add it"
+          : !k.active
+            ? "disabled"
+            : k.cooldown_until && Date.parse(k.cooldown_until) > Date.now()
+              ? `cooling until ${k.cooldown_until.slice(11, 16)}`
+              : "ready",
         last_error: k.last_error?.slice(0, 60) ?? "",
       })),
     );

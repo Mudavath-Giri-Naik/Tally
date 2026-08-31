@@ -77,6 +77,12 @@ export interface Merchant {
    * and live in a shared pool (see lib/ai-keys).
    */
   ai_provider: string | null;
+  /**
+   * The model within that provider, or null for its default. Separate from
+   * the provider because quota is counted per model - moving to another one
+   * is a way out of a throttle, not just a preference.
+   */
+  ai_model: string | null;
   active: boolean;
   created_at: string;
 }

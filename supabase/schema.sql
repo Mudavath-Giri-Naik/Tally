@@ -51,6 +51,10 @@ create table if not exists merchants (
   -- Which model backend this business runs on. Null means the platform
   -- default, so an existing merchant keeps working without being migrated.
   ai_provider           text,
+  -- The model within that provider. Worth choosing separately: quotas are
+  -- counted per model, so moving to a different one is a way out of a
+  -- throttle rather than merely a matter of taste.
+  ai_model              text,
 
   active                boolean     not null default true,  -- [+] pause a merchant without deleting them
   created_at            timestamptz not null default now(),
@@ -79,6 +83,7 @@ alter table merchants add column if not exists workflows_enabled text[] not null
 -- Same treatment for an already-deployed database: the create block above
 -- never runs on an existing table, so the column arrives from here.
 alter table merchants add column if not exists ai_provider text;
+alter table merchants add column if not exists ai_model text;
 
 -- The check constraint needs the same treatment, and cannot ride along on the
 -- alter above: on an existing table the constraint declared in the create

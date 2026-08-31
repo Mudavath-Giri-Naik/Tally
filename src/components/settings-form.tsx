@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 
 import type { Channel } from "@/lib/types";
 import { WORKFLOW_IDS, WORKFLOWS, type WorkflowId } from "@/lib/workflows";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,25 @@ const AI_PROVIDERS = [
   { id: "anthropic", label: "Anthropic Claude" },
 ] as const;
 
+/**
+ * Models worth offering per provider.
+ *
+ * A starting point rather than a closed list - providers add and retire
+ * models faster than this file will be updated, so anything can be typed and
+ * the check button beside it is what tells you whether it works. Quota is
+ * counted per model, so switching model is also a way out of a throttle.
+ */
+const AI_MODELS: Record<string, string[]> = {
+  groq: [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+  ],
+  gemini: ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
+};
+
 export interface SettingsValues {
   contact_window_start: string;
   contact_window_end: string;
@@ -46,6 +66,7 @@ export interface SettingsValues {
   channels_enabled: Channel[];
   /** Null means the platform default rather than a choice. */
   ai_provider: string | null;
+  ai_model: string | null;
   workflows_enabled: WorkflowId[];
   active: boolean;
 }
@@ -63,6 +84,32 @@ export function SettingsForm({
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [check, setCheck] = useState<{
+    ok: boolean;
+    provider?: string;
+    model?: string;
+    ms?: number;
+    error?: string;
+  } | null>(null);
+
+  /** Ask the server to actually call the model and report what happened. */
+  async function runCheck() {
+    setChecking(true);
+    setCheck(null);
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}/ai-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: form.ai_provider, model: form.ai_model }),
+      });
+      setCheck((await res.json()) as { ok: boolean });
+    } catch {
+      setCheck({ ok: false, error: "Could not reach the server to run the check." });
+    } finally {
+      setChecking(false);
+    }
+  }
 
   // Compared against the server's values, not a dirty flag, so undoing an edit
   // by hand correctly disables the button again.
@@ -265,6 +312,66 @@ export function SettingsForm({
             </select>
             {errorField === "ai_provider" && (
               <p className="text-destructive text-sm">{error}</p>
+            )}
+
+            <div className="flex flex-wrap items-end gap-2 pt-1">
+              <div className="space-y-2">
+                <Label htmlFor="aim" className="text-xs">
+                  Model
+                </Label>
+                <select
+                  id="aim"
+                  className="border-input bg-background h-9 w-full max-w-xs rounded-md border px-3 text-sm"
+                  value={form.ai_model ?? ""}
+                  onChange={(e) => {
+                    const next = e.target.value === "" ? null : e.target.value;
+                    set("ai_model", next);
+                    setCheck(null);
+                    void save({ ai_model: next });
+                  }}
+                >
+                  <option value="">Provider default</option>
+                  {(AI_MODELS[form.ai_provider ?? "groq"] ?? []).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* A real call, not a config check. A revoked key, a renamed
+                  model and a spent quota all look identical to a correct
+                  setup until someone is waiting on an answer. */}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={checking}
+                onClick={() => void runCheck()}
+              >
+                {checking ? "Checking…" : "Test connection"}
+              </Button>
+            </div>
+
+            {check && (
+              <div
+                className={cn(
+                  "flex items-start gap-2 rounded-md border p-2.5 text-sm",
+                  check.ok
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
+                )}
+              >
+                <span>
+                  {check.ok ? (
+                    <>
+                      Working - <strong>{check.provider}</strong> answered on{" "}
+                      <strong>{check.model}</strong> in {check.ms} ms.
+                    </>
+                  ) : (
+                    <>{check.error}</>
+                  )}
+                </span>
+              </div>
             )}
           </div>
 

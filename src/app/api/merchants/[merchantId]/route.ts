@@ -35,6 +35,7 @@ type Patch = Partial<
     | "channels_enabled"
     | "workflows_enabled"
     | "ai_provider"
+    | "ai_model"
     | "active"
   >
 >;
@@ -42,6 +43,21 @@ type Patch = Partial<
 /** Build the patch from the body, rejecting anything the schema would. */
 function readPatch(body: Record<string, unknown>): Patch {
   const patch: Patch = {};
+
+  if (body.ai_model !== undefined) {
+    const value = body.ai_model;
+    if (value === null || value === "") {
+      patch.ai_model = null;
+    } else if (typeof value === "string" && value.length <= 100) {
+      // Not checked against a list: providers add and retire models faster
+      // than any allowlist here would be updated, and a wrong name fails
+      // loudly on the next call rather than corrupting anything. The health
+      // check beside this field is what makes that safe to allow.
+      patch.ai_model = value.trim();
+    } else {
+      throw new ValidationError("ai_model", "That is not a valid model name.");
+    }
+  }
 
   if (body.ai_provider !== undefined) {
     const value = body.ai_provider;
