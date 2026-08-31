@@ -25,7 +25,12 @@ import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult } from "../channels";
 import { profileFor } from "../classify";
 import type { Merchant, Customer, AdminActionId } from "../types";
-import { ADMIN_ASK_PREFIX, ADMIN_REPLY_PREFIX } from "../board";
+import {
+  ADMIN_ASK_PREFIX,
+  ADMIN_REPLY_PREFIX,
+  ADMIN_DID_MARKER,
+  ADMIN_SENT_MARKER,
+} from "../board";
 import type { BoardRow, TimelineEntry } from "../board";
 
 export interface AdminChatResult {
@@ -317,12 +322,18 @@ export async function askAgent(input: {
   );
 
   const result = await respond(input);
-  await recordTurn(
-    input.merchant.id,
-    input.row.event_id,
-    ADMIN_REPLY_PREFIX,
-    result.error ? `${result.reply} (${result.error})` : result.reply,
-  );
+
+  // The reply, then what it did, then what the customer actually received -
+  // all in the one stored turn, so a refresh shows the whole exchange rather
+  // than the agreeable half of it.
+  let stored = result.error ? `${result.reply} (${result.error})` : result.reply;
+  if (result.performed && result.action !== "none") {
+    stored += `${ADMIN_DID_MARKER}${result.action}`;
+  }
+  if (result.sentBody) {
+    stored += `${ADMIN_SENT_MARKER}${result.sentBody}`;
+  }
+  await recordTurn(input.merchant.id, input.row.event_id, ADMIN_REPLY_PREFIX, stored);
   return result;
 }
 

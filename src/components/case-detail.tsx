@@ -40,6 +40,7 @@ import {
   formatDuration,
   ADMIN_ASK_PREFIX,
   ADMIN_REPLY_PREFIX,
+  parseAgentTurn,
   INBOUND_PREFIX,
   REPLY_PREFIX,
   SUMMARY_PREFIX,
@@ -997,15 +998,33 @@ export function DetailPanel({
     )
     .map((e) => {
       const mine = e.message!.startsWith(ADMIN_ASK_PREFIX);
+      const body = e.message!.slice(
+        (mine ? ADMIN_ASK_PREFIX : ADMIN_REPLY_PREFIX).length,
+      );
+      if (mine) {
+        return { id: e.id, from: "you" as const, text: body, at: e.created_at };
+      }
+      // The stored reply carries its own receipt, so what was done and what
+      // went out survive a refresh instead of living only in the response.
+      const parsed = parseAgentTurn(body);
       return {
         id: e.id,
-        from: mine ? ("you" as const) : ("agent" as const),
-        text: e.message!.slice(
-          (mine ? ADMIN_ASK_PREFIX : ADMIN_REPLY_PREFIX).length,
-        ),
+        from: "agent" as const,
+        text: parsed.reply,
+        action: parsed.action,
+        performed: parsed.action !== null,
+        sentBody: parsed.sentBody,
         at: e.created_at,
       };
     });
+
+  // The question is written to the trail before the model is called, so a
+  // poll can pull the stored copy in while the optimistic one is still on
+  // screen. Whichever arrives second must not be drawn twice.
+  const storedTexts = new Set(
+    persistedChat.filter((t) => t.from === "you").map((t) => t.text),
+  );
+  const pending = chat.filter((t) => !(t.from === "you" && storedTexts.has(t.text)));
 
   const lastAgent = persistedChat.filter((t) => t.from === "agent").at(-1);
   if (lastResult && lastAgent) {
@@ -1040,7 +1059,7 @@ export function DetailPanel({
    * it there after a reply lands, shows the least useful part of it.
    */
   const scrollRef = useRef<HTMLDivElement>(null);
-  const chatDepth = persistedChat.length + chat.length;
+  const chatDepth = persistedChat.length + pending.length;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -1169,9 +1188,9 @@ export function DetailPanel({
             {/* The conversation with the agent continues the same column,
                 below the story rather than in a panel of its own - what was
                 asked about this case is part of the case. */}
-            {(persistedChat.length > 0 || chat.length > 0 || asking) && (
+            {(persistedChat.length > 0 || pending.length > 0 || asking) && (
               <div className="mt-2 flex flex-col gap-2 border-t pt-4">
-                {[...persistedChat, ...chat].map((turn) => (
+                {[...persistedChat, ...pending].map((turn) => (
                   <ChatTurn key={turn.id} turn={turn} />
                 ))}
                 {asking && <ThinkingBubble />}

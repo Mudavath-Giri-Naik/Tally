@@ -438,6 +438,40 @@ export const INBOUND_PREFIX = "[inbound] ";
  */
 export const ADMIN_ASK_PREFIX = "[ask] ";
 export const ADMIN_REPLY_PREFIX = "[agent] ";
+/**
+ * Markers appended to a stored reply so the receipt outlives the request.
+ *
+ * What the agent did, and the message the customer actually received, were
+ * only ever known to the response that carried them - so a refresh showed
+ * the reply and dropped the evidence. Stored in the same row rather than in
+ * new columns: this is the same prefix convention the WhatsApp turns already
+ * use, and the panel is the only thing that reads it back.
+ */
+export const ADMIN_DID_MARKER = "\n\n[did] ";
+export const ADMIN_SENT_MARKER = "\n\n[sent] ";
+
+/** Split a stored agent turn back into its reply, its action and its body. */
+export function parseAgentTurn(raw: string): {
+  reply: string;
+  action: string | null;
+  sentBody: string | null;
+} {
+  let rest = raw;
+  let sentBody: string | null = null;
+  let action: string | null = null;
+
+  const sentAt = rest.indexOf(ADMIN_SENT_MARKER);
+  if (sentAt !== -1) {
+    sentBody = rest.slice(sentAt + ADMIN_SENT_MARKER.length);
+    rest = rest.slice(0, sentAt);
+  }
+  const didAt = rest.indexOf(ADMIN_DID_MARKER);
+  if (didAt !== -1) {
+    action = rest.slice(didAt + ADMIN_DID_MARKER.length).trim() || null;
+    rest = rest.slice(0, didAt);
+  }
+  return { reply: rest, action, sentBody };
+}
 export const REPLY_PREFIX = "[reply] ";
 export const SUMMARY_PREFIX = "[conversation] ";
 

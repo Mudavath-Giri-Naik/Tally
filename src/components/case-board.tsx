@@ -227,12 +227,15 @@ export function CaseBoard({
    * Ten seconds is frequent enough to feel live and rare enough to be free.
    */
   useEffect(() => {
-    if (!openEvent) return;
+    if (!openEvent || asking) return;
     const id = setInterval(() => {
       void loadTimelineQuietly(openEvent);
     }, 10_000);
     return () => clearInterval(id);
-  }, [openEvent, loadTimelineQuietly]);
+    // Paused while a question is in flight: the question is written to the
+    // trail before the model is called, so a poll landing mid-request would
+    // fetch it back and show it beside the copy already on screen.
+  }, [openEvent, asking, loadTimelineQuietly]);
 
   const toggleRow = useCallback(
     async (eventId: string) => {
