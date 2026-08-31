@@ -139,6 +139,23 @@ export async function otherOpenEventsForCustomer(
  * which is what a reply from them applies to - they are not telling us about
  * one event id, they are telling us about their account.
  */
+/**
+ * Has this exact provider message already been written down?
+ *
+ * Twilio retries a webhook it thinks failed, and on the shared sandbox one
+ * inbound can match several customer records - both of which end with the
+ * same message appearing twice in a merchant's transcript.
+ */
+export async function inboundAlreadyRecorded(messageSid: string): Promise<boolean> {
+  const { data, error } = await db()
+    .from("actions")
+    .select("id")
+    .eq("response", messageSid)
+    .limit(1);
+  if (error) throw new Error(`Could not check for a duplicate reply: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
 export async function openEventsForCustomer(
   customerId: string,
 ): Promise<RecoveryEvent[]> {

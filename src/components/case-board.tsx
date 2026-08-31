@@ -228,10 +228,30 @@ export function CaseBoard({
    */
   useEffect(() => {
     if (!openEvent || asking) return;
+
+    // Four seconds, not ten: a customer's reply arriving is the thing a
+    // merchant is sitting there waiting for, and ten made it feel like the
+    // panel had missed it. The request is small and hits one index.
     const id = setInterval(() => {
-      void loadTimelineQuietly(openEvent);
-    }, 10_000);
-    return () => clearInterval(id);
+      if (document.visibilityState === "visible") {
+        void loadTimelineQuietly(openEvent);
+      }
+    }, 4_000);
+
+    // Coming back to the tab refreshes at once rather than waiting out the
+    // interval - a hidden tab polls nothing, so returning to one is exactly
+    // when it is most stale.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadTimelineQuietly(openEvent);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
     // Paused while a question is in flight: the question is written to the
     // trail before the model is called, so a poll landing mid-request would
     // fetch it back and show it beside the copy already on screen.

@@ -33,6 +33,7 @@ import {
   recordAction,
   updateEvent,
   openEventsForCustomer,
+  inboundAlreadyRecorded,
 } from "@/lib/events";
 import { listMerchants, whatsappNumber, getMerchant } from "@/lib/merchants";
 import { sendWhatsApp } from "@/lib/channels";
@@ -199,7 +200,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     //
     // After `pending` is read, deliberately: recording makes this the newest
     // row, and the question it answers must be found first.
+    // One message is one row. On the shared sandbox number every merchant
+    // sends from the same place, so findCustomersByPhone can return several
+    // customer records for one human - and recording per record wrote the
+    // same reply two or three times. Twilio's own message id is the identity.
+    const messageSid = params.MessageSid ?? params.SmsMessageSid ?? null;
+    const alreadyRecorded = messageSid
+      ? await inboundAlreadyRecorded(messageSid).catch(() => false)
+      : false;
+
     for (const customer of customers) {
+      if (alreadyRecorded) break;
       const latest = await latestEventForCustomer(customer.id).catch(() => null);
       if (!latest) continue;
       await recordAction({
@@ -208,7 +219,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         channel: "whatsapp",
         message: `${INBOUND_PREFIX}${body}`,
         outcome: "no_action",
-        response: params.MessageSid ?? params.SmsMessageSid ?? null,
+        response: messageSid,
         sentAt: new Date().toISOString(),
         decision: {
           root_cause: latest.reason ?? "unknown",
@@ -222,6 +233,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         // Losing the transcript must not lose the reply itself.
         console.error("[whatsapp-in] could not record inbound", err);
       });
+      // Recorded once, against the customer's most recent case. The panel
+      // shows it on every case of theirs regardless - see event_timeline.
+      break;
     }
 
     for (const customer of customers) {

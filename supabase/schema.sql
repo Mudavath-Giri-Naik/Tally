@@ -1233,7 +1233,27 @@ as $fn$
   from actions a
   join merchants m on m.id = a.merchant_id
   where a.merchant_id = p_merchant_id
-    and a.event_id = p_event_id
+    and (
+      a.event_id = p_event_id
+      -- The conversation belongs to the customer, not to one case.
+      --
+      -- A WhatsApp thread is one thread: the customer answers the person,
+      -- not the invoice. An inbound reply is filed against whichever of
+      -- their cases was most recent, so a merchant looking at any of the
+      -- others saw our messages with their replies missing - which reads as
+      -- the customer ignoring us. Their side of it now appears on every case
+      -- of theirs, because that is where it is true.
+      or (
+        (a.message like '[inbound] %' or a.message like '[reply] %')
+        and a.event_id in (
+          select e2.id from events e2
+          where e2.customer_id = (
+            select e1.customer_id from events e1 where e1.id = p_event_id
+          )
+          and e2.customer_id is not null
+        )
+      )
+    )
   order by a.created_at;
 $fn$;
 
