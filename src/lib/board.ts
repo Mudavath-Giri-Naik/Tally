@@ -77,6 +77,15 @@ export interface BoardRow {
   amount: number | null;
   reason: RootCause;
   reason_label: string;
+  /**
+   * What this cause actually calls for, in plain words - the same text the
+   * agent is given as context. Derived here rather than fetched: it is a
+   * property of the cause, so the row already carries everything needed and
+   * the panel can say what the next step is aiming at without a round trip.
+   */
+  reason_remedy: string;
+  /** Whether retrying this payment method could ever work. */
+  reason_retryable: boolean;
   status: BoardStatus;
   attempts: number;
   max_attempts: number;
@@ -97,6 +106,12 @@ export interface BoardRow {
   hold_until: string | null;
   /** When the next automated step is due, if one is scheduled at all. */
   next_attempt_at: string | null;
+  /**
+   * Why the agent stopped, for the statuses that are a dead end. "Needs
+   * human" covers a fraud flag, three failed cycles and an admin escalation
+   * alike, and those want different responses from the merchant.
+   */
+  stop_reason: string | null;
 }
 
 
@@ -174,6 +189,8 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     amount: r.amount === null ? null : Number(r.amount),
     reason,
     reason_label: profileFor(reason).label,
+    reason_remedy: profileFor(reason).remedy,
+    reason_retryable: profileFor(reason).retryable,
     status: String(r.status) as BoardStatus,
     attempts: Number(r.attempts ?? 0),
     max_attempts: Number(r.max_attempts ?? 3),
@@ -184,6 +201,7 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     paused: Boolean(r.paused ?? false),
     hold_until: (r.hold_until as string) ?? null,
     next_attempt_at: (r.next_attempt_at as string) ?? null,
+    stop_reason: (r.stop_reason as string) ?? null,
   };
 }
 
@@ -420,6 +438,13 @@ export interface TimelineEntry {
   in_window: boolean | null;
   /** Which admin override this was, if a merchant made this happen by hand. */
   admin_action: string | null;
+  /**
+   * "agent" when the model's choice stood, "guardrail" when a rule changed
+   * or overrode it. The audit trail's whole purpose is showing both.
+   */
+  source: string | null;
+  /** The provider's reply - its id on a success, its error text on a failure. */
+  response: string | null;
 }
 
 export async function eventTimeline(
@@ -445,6 +470,8 @@ export async function eventTimeline(
     in_window:
       r.in_window === null || r.in_window === undefined ? null : Boolean(r.in_window),
     admin_action: (r.admin_action as string) ?? null,
+    source: (r.source as string) ?? null,
+    response: (r.response as string) ?? null,
   }));
 }
 

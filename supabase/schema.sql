@@ -766,6 +766,10 @@ $fn$;
 -- refuses. The body is quoted, so nothing depends on it at creation time.
 drop function if exists merchant_board(uuid, timestamptz);
 drop function if exists merchant_board(uuid, timestamptz, timestamptz);
+-- The current signature, dropped for the same reason as the two above:
+-- adding a column to the returns table changes the return type, and
+-- `create or replace` refuses that outright rather than adapting.
+drop function if exists merchant_board(uuid, timestamptz, timestamptz, uuid);
 create or replace function merchant_board(
   p_merchant_id uuid,
   p_since       timestamptz default now() - interval '90 days',
@@ -795,7 +799,11 @@ create or replace function merchant_board(
   event_type     text,
   paused         boolean,
   hold_until     timestamptz,
-  next_attempt_at timestamptz
+  next_attempt_at timestamptz,
+  -- Why the agent stopped, carried to the table so "Needs human" can say
+  -- which kind. Fraud, three failed cycles and an admin escalation all land
+  -- in that one bucket and all want a different response from the merchant.
+  stop_reason    text
 )
 language sql stable
 as $fn$
@@ -853,7 +861,8 @@ as $fn$
          e.type,
          e.paused,
          e.hold_until,
-         e.next_attempt_at
+         e.next_attempt_at,
+         e.stop_reason
   from events e
   join merchants m on m.id = e.merchant_id
   left join customers c on c.id = e.customer_id
@@ -1095,7 +1104,16 @@ create or replace function event_timeline(
   -- [+] admin overrides: which one this row was, so the detail panel can
   -- render it as a distinct "admin action" card instead of a generic
   -- automated no-channel decision.
-  admin_action text
+  admin_action text,
+  -- Who decided this step: the model, or a rule that overrode it. The
+  -- distinction is the whole point of the guardrails, and a timeline that
+  -- shows the outcome without showing which of the two produced it cannot
+  -- answer "did the agent choose this, or was it made to?".
+  source      text,
+  -- What the provider said back. Carries the provider's id on a success and
+  -- its error text on a failure - and the failure is the case that matters:
+  -- "Failed" with the reason withheld is not something a merchant can act on.
+  response    text
 )
 language sql stable
 as $fn$
@@ -1114,7 +1132,9 @@ as $fn$
               else (a.sent_at at time zone m.timezone)::time
                      between m.contact_window_start and m.contact_window_end
          end,
-         a.decision->>'admin_action'
+         a.decision->>'admin_action',
+         a.decision->>'source',
+         a.response
   from actions a
   join merchants m on m.id = a.merchant_id
   where a.merchant_id = p_merchant_id
