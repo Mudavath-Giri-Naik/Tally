@@ -273,6 +273,9 @@ const RULES: Rule[] = [
       /authentication[_ ]?(failed|error|not[_ ]?completed)/,
       /auth[_ ]?(failed|declined)/,
       /customer[_ ]?(cancelled|canceled)[_ ]?(the[_ ]?)?(payment|transaction)/,
+      // A UPI collect request the customer never approved before it lapsed.
+      // Nothing was declined - they simply did not complete the approval.
+      /(upi[_ ]?)?collect[_ ]?(request[_ ]?)?expired/,
     ],
   },
 
@@ -292,6 +295,9 @@ const RULES: Rule[] = [
       /timed?[_ ]?out/,
       /timeout/,
       /gateway[_ ]?(error|failure|unavailable)/,
+      // Razorpay's own `gateway_technical_error` reason - the word between
+      // "gateway" and "error" is why the pattern above misses it.
+      /gateway[_ ]?technical[_ ]?error/,
       /network[_ ]?error/,
       /temporar(y|ily)[_ ]?(unavailable|error|failure)/,
       /server[_ ]?error/,
@@ -307,6 +313,35 @@ export interface RazorpayErrorSurface {
   error_reason?: string | null;
   error_source?: string | null;
   error_step?: string | null;
+}
+
+/**
+ * Razorpay's structured fields, read as facts rather than prose.
+ *
+ * Consulted only when the patterns above find nothing, which is the common
+ * case in practice: a great many real `payment.failed` hooks carry nothing
+ * but `error_reason: "payment_failed"` and `error_description: "Payment
+ * failed"`, which say precisely nothing. But the same payload also states
+ * which step the payment died at and whose infrastructure raised the error,
+ * and those are assertions Razorpay is making outright - not something we
+ * are inferring from wording. Using them is the difference between "Unknown
+ * failure" and a cause the agent can actually act on, without crossing into
+ * the guessing this module exists to avoid.
+ */
+function fromStructuredFields(err: RazorpayErrorSurface): RootCause | null {
+  const step = err.error_step?.toLowerCase().trim() ?? "";
+
+  // The payment stopped at the authentication step: the customer never got
+  // through OTP/3DS. That is where it died, not a theory about why.
+  //
+  // Only the step is read here. `error_source` deliberately is not: "bank"
+  // sources an insufficient-funds decline exactly as it sources an outage,
+  // so on its own it separates nothing, and the technical error classes that
+  // would pair with it (GATEWAY_ERROR, SERVER_ERROR, BANK_ERROR) are already
+  // caught as systemic by the patterns above.
+  if (step === "payment_authentication") return "authentication_failed";
+
+  return null;
 }
 
 /**
@@ -334,6 +369,9 @@ export function classifyFailure(err: RazorpayErrorSurface): RootCause {
       return rule.cause;
     }
   }
+
+  const structured = fromStructuredFields(err);
+  if (structured) return structured;
 
   // A bare BANK_ERROR / GATEWAY_ERROR with no detail is still systemic.
   if (/bank_error|gateway_error/.test(haystack)) return "gateway_timeout";

@@ -148,6 +148,78 @@ describe("classifyFailure", () => {
     assert.equal(classifyFailure({ error_code: "GATEWAY_ERROR" }), "gateway_timeout");
   });
 
+  describe("Razorpay's structured fields, when the prose says nothing", () => {
+    // The single most common real payload: both text fields are the literal
+    // word "failed" and carry no cause at all. Before the structured tier
+    // this was the whole reason live events showed "Unknown failure".
+    test("a generic payment_failed that died at authentication is an auth failure", () => {
+      assert.equal(
+        classifyFailure({
+          error_code: "BAD_REQUEST_ERROR",
+          error_description: "Payment failed",
+          error_reason: "payment_failed",
+          error_source: "customer",
+          error_step: "payment_authentication",
+        }),
+        "authentication_failed",
+      );
+    });
+
+    test("a technical error class is systemic even when the prose is empty", () => {
+      assert.equal(
+        classifyFailure({
+          error_code: "GATEWAY_ERROR",
+          error_description: "Payment failed",
+          error_reason: "payment_failed",
+          error_source: "bank",
+          error_step: "payment_authorization",
+        }),
+        "gateway_timeout",
+      );
+    });
+
+    test("a source alone never makes something systemic", () => {
+      // "bank" sources an insufficient-funds decline exactly as it sources an
+      // outage. With no technical error class and no stated cause, there is
+      // genuinely nothing here to classify - and saying so is the point.
+      assert.equal(
+        classifyFailure({
+          error_code: "BAD_REQUEST_ERROR",
+          error_reason: "payment_failed",
+          error_source: "bank",
+          error_step: "payment_authorization",
+        }),
+        "unknown",
+      );
+    });
+
+    test("stated prose still beats the structured fallback", () => {
+      // Razorpay named the cause outright; the step must not override it.
+      assert.equal(
+        classifyFailure({
+          error_description: "Your card has insufficient funds.",
+          error_reason: "insufficient_funds",
+          error_step: "payment_authentication",
+        }),
+        "insufficient_funds",
+      );
+    });
+
+    test("gateway_technical_error is recognised despite the word in the middle", () => {
+      assert.equal(
+        classifyFailure({ error_reason: "gateway_technical_error" }),
+        "gateway_timeout",
+      );
+    });
+
+    test("a lapsed UPI collect is an approval never completed", () => {
+      assert.equal(
+        classifyFailure({ error_reason: "upi_collect_expired" }),
+        "authentication_failed",
+      );
+    });
+  });
+
   test("is case-insensitive", () => {
     assert.equal(
       classifyFailure({ error_description: "YOUR CARD HAS EXPIRED" }),
