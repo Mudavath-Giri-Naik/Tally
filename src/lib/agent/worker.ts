@@ -29,6 +29,7 @@ import {
 import { menuBlock } from "../menu";
 import { createRetryLink, retryLinkReference } from "../razorpay";
 import { profileFor } from "../classify";
+import { stripInventedLinks } from "./links";
 import { workflowFor, workflowEnabled, WORKFLOWS } from "../workflows";
 import { decide } from "./decide";
 import { preflight, type DecisionContext } from "./rules";
@@ -354,13 +355,20 @@ async function processEvent(
     };
     const link = await transport.createLink(merchant, event, recipient);
 
+    // The prompt tells the model a real link is appended for it and not to
+    // invent one; it does anyway, and a fabricated payment URL sent to someone
+    // chasing a failed payment is the worst copy this system can produce - it
+    // looks exactly like the phishing it would be mistaken for. Stripped here
+    // rather than trusted there.
+    const safeMessage = stripInventedLinks(decision.message, link);
+
     // First WhatsApp contact carries the menu, so the customer has a way in
     // that does not require them to compose a sentence. Only the first: a menu
     // repeated on every nudge reads as an automated system talking past them.
     const body =
       decision.channel === "whatsapp" && event.attempts === 0
-        ? `${decision.message}\n\n${menuBlock("root")}`
-        : decision.message;
+        ? `${safeMessage}\n\n${menuBlock("root")}`
+        : safeMessage;
 
     const result = await transport.dispatch(decision.channel!, {
       merchantName: merchant.business_name,
@@ -376,7 +384,7 @@ async function processEvent(
       eventId: event.id,
       merchantId: merchant.id,
       channel: decision.channel,
-      message: decision.message,
+      message: safeMessage,
       outcome: result.ok ? "sent" : "failed",
       response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
       sentAt: result.ok ? new Date().toISOString() : null,

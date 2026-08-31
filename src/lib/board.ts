@@ -424,6 +424,17 @@ export async function loadDashboard(
  * providers - the agent re-exports these rather than redefining them.
  */
 export const INBOUND_PREFIX = "[inbound] ";
+/**
+ * An admin's own conversation with the agent about a case.
+ *
+ * Stored as actions like everything else rather than in a table of its own:
+ * asking the agent to message someone at 9pm is part of that case's story,
+ * and a trail that omitted the instruction while recording the send would be
+ * missing the reason. Prefixed so the timeline can lift them out of the
+ * step list and render them as the chat they are.
+ */
+export const ADMIN_ASK_PREFIX = "[ask] ";
+export const ADMIN_REPLY_PREFIX = "[agent] ";
 export const REPLY_PREFIX = "[reply] ";
 export const SUMMARY_PREFIX = "[conversation] ";
 

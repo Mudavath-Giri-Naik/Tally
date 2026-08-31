@@ -75,15 +75,19 @@ export const CommandSchema = z.object({
     "write_off",
     "flag_disputed",
   ]),
+  // nullish, not nullable: Gemini omits a field it has no value for rather
+  // than sending an explicit null, and `.nullable()` still demands the key be
+  // there - so a perfectly good "just answer the question" reply failed
+  // validation on three fields it had no reason to fill in.
   /** The body to send, when the action is a send. */
-  message: z.string().nullable(),
+  message: z.string().nullish(),
   /** "HH:MM" 24-hour, for set_contact_window. */
-  window_start: z.string().nullable(),
-  window_end: z.string().nullable(),
+  window_start: z.string().nullish(),
+  window_end: z.string().nullish(),
   /** "YYYY-MM-DD", for snooze. */
-  snooze_until: z.string().nullable(),
+  snooze_until: z.string().nullish(),
   /** Free text recorded in the audit trail for the admin actions that take one. */
-  reason: z.string().nullable(),
+  reason: z.string().nullish(),
 });
 
 export type AgentCommand = z.infer<typeof CommandSchema>;

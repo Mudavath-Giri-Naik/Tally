@@ -93,6 +93,14 @@ export function CaseBoard({
   // confusing two customers.
   const [chats, setChats] = useState<Record<string, AdminChatTurn[]>>({});
   const [asking, setAsking] = useState(false);
+  // What the last instruction actually did. The stored turn carries the
+  // words; this carries the receipt.
+  const [lastResult, setLastResult] = useState<{
+    action: string | null;
+    performed: boolean;
+    error: string | null;
+    sentBody: string | null;
+  } | null>(null);
 
   const { isMobile, setOpen: setSidebarOpen } = useSidebar();
 
@@ -173,6 +181,27 @@ export function CaseBoard({
     [data.rows, openEvent],
   );
 
+  /**
+   * Refetch without clearing first.
+   *
+   * loadTimeline blanks the panel to show a spinner, which is right when
+   * opening a case and wrong on a poll - it would flicker the whole story
+   * away every ten seconds.
+   */
+  const loadTimelineQuietly = useCallback(
+    async (eventId: string) => {
+      try {
+        const res = await fetch(`/api/dashboard/${slug}/timeline/${eventId}`);
+        if (!res.ok) return;
+        const json = (await res.json()) as { entries: TimelineEntry[] };
+        setTimeline(json.entries);
+      } catch {
+        // A failed poll keeps whatever is on screen; the next one will do.
+      }
+    },
+    [slug],
+  );
+
   const loadTimeline = useCallback(
     async (eventId: string) => {
       setTimeline(null);
@@ -188,6 +217,22 @@ export function CaseBoard({
     },
     [slug],
   );
+
+  /**
+   * Keep the open case's trail current.
+   *
+   * The board itself arrives over SSE, but the timeline is fetched once when
+   * a row is opened - so a customer replying on WhatsApp, or the worker
+   * running a step, left the panel showing a story that had already moved on.
+   * Ten seconds is frequent enough to feel live and rare enough to be free.
+   */
+  useEffect(() => {
+    if (!openEvent) return;
+    const id = setInterval(() => {
+      void loadTimelineQuietly(openEvent);
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [openEvent, loadTimelineQuietly]);
 
   const toggleRow = useCallback(
     async (eventId: string) => {
@@ -252,6 +297,7 @@ export function CaseBoard({
         ],
       }));
       setAsking(true);
+      setLastResult(null);
 
       try {
         const res = await fetch(`/api/dashboard/${slug}/events/${openEvent}/ask`, {
@@ -264,24 +310,19 @@ export function CaseBoard({
           action?: string;
           performed?: boolean;
           error?: string | null;
+          sentBody?: string | null;
           row?: BoardRow;
         };
 
-        setChats((c) => ({
-          ...c,
-          [openEvent]: [
-            ...(c[openEvent] ?? []),
-            {
-              id: `a-${Date.now()}`,
-              from: "agent",
-              text: json.reply ?? "I could not answer that one.",
-              action: json.action ?? null,
-              performed: json.performed ?? false,
-              error: json.error ?? null,
-              at: new Date().toISOString(),
-            },
-          ],
-        }));
+        // Kept locally only for what the stored turn cannot carry: the
+        // confirmation of what was done, and the message that actually went
+        // out. The words themselves come back with the timeline.
+        setLastResult({
+          action: json.action ?? null,
+          performed: json.performed ?? false,
+          error: json.error ?? null,
+          sentBody: json.sentBody ?? null,
+        });
 
         if (json.row) {
           const updated = json.row;
@@ -292,7 +333,10 @@ export function CaseBoard({
         }
         // Anything it actually did leaves a row in the audit trail, so the
         // story above the chat has to be re-read for the chat to make sense.
-        if (json.performed) await loadTimeline(openEvent);
+        // The trail now holds both turns, so reload it and drop the local
+        // copies rather than rendering each exchange twice.
+        await loadTimeline(openEvent);
+        setChats((c) => ({ ...c, [openEvent]: [] }));
       } catch {
         setChats((c) => ({
           ...c,
@@ -573,6 +617,7 @@ export function CaseBoard({
             chat={chats[openRow.event_id] ?? []}
             asking={asking}
             onAsk={askAgent}
+            lastResult={lastResult}
           />
         </div>
       )}

@@ -38,6 +38,8 @@ import {
 import { formatINR, type AdminActionId } from "@/lib/types";
 import {
   formatDuration,
+  ADMIN_ASK_PREFIX,
+  ADMIN_REPLY_PREFIX,
   INBOUND_PREFIX,
   REPLY_PREFIX,
   SUMMARY_PREFIX,
@@ -205,6 +207,8 @@ export interface AdminChatTurn {
   action?: string | null;
   performed?: boolean;
   error?: string | null;
+  /** The message that actually reached the customer, shown verbatim. */
+  sentBody?: string | null;
   at: string;
 }
 
@@ -255,6 +259,14 @@ function ChatTurn({ turn }: { turn: AdminChatTurn }) {
             <CircleCheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
             {label}
           </span>
+        )}
+
+        {/* What the customer actually received, not a summary of it. An admin
+            who ordered the send is answerable for its wording. */}
+        {turn.sentBody && (
+          <div className="bg-background/70 text-foreground mt-2 rounded-md border p-2.5 text-xs whitespace-pre-wrap">
+            {turn.sentBody}
+          </div>
         )}
 
         {turn.error && (
@@ -616,6 +628,17 @@ function StoppedBanner({
   /** True while a question is in flight, so the box can show it thinking. */
   asking?: boolean;
   onAsk?: (question: string) => void;
+  /**
+   * What the last instruction actually did. The stored turn carries the
+   * agent's words; the receipt - the message that went out, or why it did
+   * not - is only known to the request that ran it.
+   */
+  lastResult?: {
+    action: string | null;
+    performed: boolean;
+    error: string | null;
+    sentBody: string | null;
+  } | null;
 }) {
   const label = stopReasonLabel(row.stop_reason);
   const needsHuman = row.status === "needs_human";
@@ -671,6 +694,17 @@ function PendingCard({
   /** True while a question is in flight, so the box can show it thinking. */
   asking?: boolean;
   onAsk?: (question: string) => void;
+  /**
+   * What the last instruction actually did. The stored turn carries the
+   * agent's words; the receipt - the message that went out, or why it did
+   * not - is only known to the request that ran it.
+   */
+  lastResult?: {
+    action: string | null;
+    performed: boolean;
+    error: string | null;
+    sentBody: string | null;
+  } | null;
 }) {
   const waitingUntil =
     row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now()
@@ -918,7 +952,7 @@ function toneForGroup(group: AttemptGroup): string {
 /* ── detail panel ────────────────────────────────────────────────────────── */
 
 export function DetailPanel({
-  row, entries, error, onAction, chat = [], asking = false, onAsk,
+  row, entries, error, onAction, chat = [], asking = false, onAsk, lastResult = null,
 }: {
   row: BoardRow;
   entries: TimelineEntry[] | null;
@@ -934,6 +968,17 @@ export function DetailPanel({
   /** True while a question is in flight, so the box can show it thinking. */
   asking?: boolean;
   onAsk?: (question: string) => void;
+  /**
+   * What the last instruction actually did. The stored turn carries the
+   * agent's words; the receipt - the message that went out, or why it did
+   * not - is only known to the request that ran it.
+   */
+  lastResult?: {
+    action: string | null;
+    performed: boolean;
+    error: string | null;
+    sentBody: string | null;
+  } | null;
 }) {
   const sent = entries?.filter((e) => e.in_window !== null) ?? [];
   const outOfWindow = sent.filter((e) => e.in_window === false).length;
@@ -941,7 +986,42 @@ export function DetailPanel({
   // happened to the customer - they never render as a step, so an event whose
   // only rows are summaries must fall back to the empty state rather than an
   // empty gap where the timeline should be.
-  const visible = entries?.filter((e) => !e.message?.startsWith(SUMMARY_PREFIX)) ?? [];
+  // The admin conversation is stored as actions like everything else, so it
+  // has to be lifted back out of the step list and rendered as the chat it
+  // is - and being stored is why it survives a refresh.
+  const persistedChat: AdminChatTurn[] = (entries ?? [])
+    .filter(
+      (e) =>
+        e.message?.startsWith(ADMIN_ASK_PREFIX) ||
+        e.message?.startsWith(ADMIN_REPLY_PREFIX),
+    )
+    .map((e) => {
+      const mine = e.message!.startsWith(ADMIN_ASK_PREFIX);
+      return {
+        id: e.id,
+        from: mine ? ("you" as const) : ("agent" as const),
+        text: e.message!.slice(
+          (mine ? ADMIN_ASK_PREFIX : ADMIN_REPLY_PREFIX).length,
+        ),
+        at: e.created_at,
+      };
+    });
+
+  const lastAgent = persistedChat.filter((t) => t.from === "agent").at(-1);
+  if (lastResult && lastAgent) {
+    lastAgent.action = lastResult.action;
+    lastAgent.performed = lastResult.performed;
+    lastAgent.error = lastResult.error;
+    lastAgent.sentBody = lastResult.sentBody;
+  }
+
+  const visible =
+    entries?.filter(
+      (e) =>
+        !e.message?.startsWith(SUMMARY_PREFIX) &&
+        !e.message?.startsWith(ADMIN_ASK_PREFIX) &&
+        !e.message?.startsWith(ADMIN_REPLY_PREFIX),
+    ) ?? [];
   const groups = groupAttempts(visible);
   // A dead end that is not a recovery gets a closing step saying so. Statuses
   // still in play (chasing, waiting on a window) deliberately do not: there
@@ -1069,9 +1149,9 @@ export function DetailPanel({
             {/* The conversation with the agent continues the same column,
                 below the story rather than in a panel of its own - what was
                 asked about this case is part of the case. */}
-            {(chat.length > 0 || asking) && (
+            {(persistedChat.length > 0 || chat.length > 0 || asking) && (
               <div className="mt-2 flex flex-col gap-2 border-t pt-4">
-                {chat.map((turn) => (
+                {[...persistedChat, ...chat].map((turn) => (
                   <ChatTurn key={turn.id} turn={turn} />
                 ))}
                 {asking && <ThinkingBubble />}

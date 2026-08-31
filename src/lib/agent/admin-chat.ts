@@ -18,11 +18,14 @@
  */
 import { getProvider, type AgentCommand } from "./providers";
 import { updateMerchantSettings } from "../merchants";
-import { applyAdminOverride, AdminActionError, recordAction } from "../events";
+import { applyAdminOverride, AdminActionError, recordAction, getEvent } from "../events";
+import { liveTransport } from "./worker";
+import { stripInventedLinks } from "./links";
 import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult } from "../channels";
 import { profileFor } from "../classify";
 import type { Merchant, Customer, AdminActionId } from "../types";
+import { ADMIN_ASK_PREFIX, ADMIN_REPLY_PREFIX } from "../board";
 import type { BoardRow, TimelineEntry } from "../board";
 
 export interface AdminChatResult {
@@ -33,6 +36,14 @@ export interface AdminChatResult {
   performed: boolean;
   /** Short, plain-words failure. Null when nothing went wrong. */
   error: string | null;
+  /**
+   * The message that actually went out, link and all.
+   *
+   * Shown in the chat instead of a summary: an admin who said "message them
+   * now" is accountable for what the customer received, and "I sent a
+   * WhatsApp message" does not tell them what it said.
+   */
+  sentBody?: string | null;
 }
 
 /** The admin actions the chat can reach, mapped to their override ids. */
@@ -96,6 +107,9 @@ function systemPrompt(): string {
     "verbatim - warm, short, never blaming the customer for a failure that was",
     "not theirs. For place_call, `message` is the script to read aloud.",
     "",
+    "Never write a URL. A real payment link is created and appended for you,",
+    "and any link you invent is stripped out before the message is sent.",
+    "",
     "For set_contact_window give window_start and window_end as HH:MM, 24-hour.",
     "For snooze give snooze_until as YYYY-MM-DD.",
     "",
@@ -149,26 +163,88 @@ function userPrompt(input: {
     .join("\n");
 }
 
+/**
+ * Write one side of the chat to the audit trail.
+ *
+ * Channel-less and outcome "no_action" so it never counts as an attempt or a
+ * contact - it is a note on the case, and the panel lifts it back out by its
+ * prefix rather than drawing it as a step.
+ */
+async function recordTurn(
+  merchantId: string,
+  eventId: string,
+  prefix: string,
+  text: string,
+): Promise<void> {
+  try {
+    await recordAction({
+      eventId,
+      merchantId,
+      channel: null,
+      message: `${prefix}${text}`,
+      outcome: "no_action",
+      decision: {
+        root_cause: "unknown",
+        intervention: "stop",
+        channel: null,
+        rationale: "Admin conversation about this case.",
+        source: "admin",
+        guardrail: "admin_chat",
+      },
+    });
+  } catch (err) {
+    // The conversation is worth keeping but not worth failing the answer for.
+    console.error("[ask] could not record chat turn", err);
+  }
+}
+
 /** Send on one channel now, and record it as an admin-initiated action. */
 async function sendNow(
   channel: "email" | "whatsapp" | "voice",
   input: { merchant: Merchant; row: BoardRow; customer: Customer | null; body: string },
-): Promise<{ ok: boolean; error: string | null }> {
+): Promise<{ ok: boolean; error: string | null; sentBody: string | null }> {
   const { merchant, row, customer, body } = input;
 
   if (customer?.opted_out) {
-    return { ok: false, error: "This customer has opted out, so nothing can be sent to them." };
+    return {
+      ok: false,
+      error: "This customer has opted out, so nothing can be sent to them.",
+      sentBody: null,
+    };
   }
   if (!merchant.channels_enabled.includes(channel)) {
-    return { ok: false, error: `${channel} is switched off for this business.` };
+    return { ok: false, error: `${channel} is switched off for this business.`, sentBody: null };
   }
   const to = channel === "email" ? customer?.email : customer?.phone;
   if (!to) {
     return {
       ok: false,
       error: `No ${channel === "email" ? "email address" : "phone number"} on file for this customer.`,
+      sentBody: null,
     };
   }
+
+  // The same real Razorpay link the worker would have attached. Without it an
+  // admin-triggered send had nothing to link to, which is exactly when a model
+  // invents one - so the link is fetched first, and then anything in the body
+  // that is not it is stripped out.
+  let link: string | null = null;
+  try {
+    const event = await getEvent(merchant.id, row.event_id);
+    if (event) {
+      link = await liveTransport.createLink(merchant, event, {
+        name: customer?.name ?? null,
+        email: customer?.email ?? null,
+        phone: customer?.phone ?? null,
+      });
+    }
+  } catch {
+    // A missing link is a degraded message, not a failed one - same call the
+    // worker makes. The stripping below then removes any invented stand-in.
+    link = null;
+  }
+
+  const safeBody = stripInventedLinks(body, link);
 
   const message = {
     merchantName: merchant.business_name,
@@ -178,8 +254,8 @@ async function sendNow(
       phone: customer?.phone ?? null,
     },
     subject: channel === "email" ? `About your payment to ${merchant.business_name}` : null,
-    body,
-    link: null,
+    body: safeBody,
+    link,
   };
 
   let result: SendResult;
@@ -200,7 +276,7 @@ async function sendNow(
     eventId: row.event_id,
     merchantId: merchant.id,
     channel,
-    message: body,
+    message: safeBody,
     outcome: result.ok ? "sent" : "failed",
     response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
     sentAt: result.ok ? new Date().toISOString() : null,
@@ -217,11 +293,40 @@ async function sendNow(
   return {
     ok: result.ok,
     error: result.ok ? null : explainFailure(result.error ?? "The provider refused it."),
+    sentBody: link ? `${safeBody}
+
+${link}` : safeBody,
   };
 }
 
 /** Interpret what the admin asked, carry it out, and say what happened. */
 export async function askAgent(input: {
+  merchant: Merchant;
+  row: BoardRow;
+  customer: Customer | null;
+  timeline: TimelineEntry[];
+  question: string;
+}): Promise<AdminChatResult> {
+  // Written before the model is called, so a question survives a provider
+  // that fails to answer it.
+  await recordTurn(
+    input.merchant.id,
+    input.row.event_id,
+    ADMIN_ASK_PREFIX,
+    input.question,
+  );
+
+  const result = await respond(input);
+  await recordTurn(
+    input.merchant.id,
+    input.row.event_id,
+    ADMIN_REPLY_PREFIX,
+    result.error ? `${result.reply} (${result.error})` : result.reply,
+  );
+  return result;
+}
+
+async function respond(input: {
   merchant: Merchant;
   row: BoardRow;
   customer: Customer | null;
@@ -283,6 +388,7 @@ export async function askAgent(input: {
           action: command.action,
           performed: sent.ok,
           error: sent.error,
+          sentBody: sent.ok ? sent.sentBody : null,
         };
       }
 
