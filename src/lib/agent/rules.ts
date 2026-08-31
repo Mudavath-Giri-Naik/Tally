@@ -401,15 +401,28 @@ export function clamp(
     !withinContactWindow(merchant, now)
   ) {
     scheduledFor = nextWindowOpen(merchant, now);
-    guardrail =
-      `outside the ${merchant.contact_window_start}-${merchant.contact_window_end} ` +
-      `${merchant.timezone} contact window - deferred to ${scheduledFor.toISOString()}`;
+    // A short code for the badge, not the ISO timestamp that used to live
+    // here - "outside the 09:00-21:00 Asia/Kolkata contact window - deferred
+    // to 2026-09-01T03:30:00.000Z" crammed into a small pill read as noise,
+    // not as an answer to "why hasn't anything happened". The actual answer
+    // - in the merchant's own timezone, not raw UTC - belongs in the
+    // rationale a merchant actually reads, replacing the agent's now-stale
+    // "here is what I was about to send" reasoning for this deferred step.
+    guardrail = "outside_contact_window";
+    const scheduledLocal = scheduledFor.toLocaleString("en-IN", {
+      timeZone: merchant.timezone,
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
     return {
       root_cause: cause,
       intervention: "schedule_retry",
       channel,
       message: choice.message,
-      rationale: choice.rationale,
+      rationale:
+        `Outside the ${merchant.contact_window_start}–${merchant.contact_window_end} ` +
+        `${merchant.timezone} contact window. The next attempt is scheduled for ` +
+        `${scheduledLocal}.`,
       guardrail,
       source: "guardrail",
       send: false,

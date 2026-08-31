@@ -420,9 +420,27 @@ export function DetailPanel({
           <p className="text-muted-foreground p-8 text-center text-sm">Loading the timeline…</p>
         )}
         {entries && groups.length === 0 && !row.recovered_at && (
-          <p className="text-muted-foreground p-8 text-center text-sm">
-            Nothing has happened on this event yet.
-          </p>
+          <div className="text-muted-foreground p-8 text-center text-sm">
+            {row.paused ? (
+              <p>Outreach is paused on this case by an admin.</p>
+            ) : row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now() ? (
+              <>
+                <p>Nothing sent yet.</p>
+                <p className="mt-1">
+                  Next attempt around{" "}
+                  <strong className="text-foreground">{shortTime(row.next_attempt_at)}</strong>
+                  {row.hold_until && Date.parse(row.hold_until) > Date.now()
+                    ? " - snoozed until then by an admin."
+                    : " - most likely waiting for the contact window to open."}
+                </p>
+              </>
+            ) : (
+              <p>
+                Nothing has happened on this event yet. Tally checks for new
+                cases every few minutes, so this should update shortly.
+              </p>
+            )}
+          </div>
         )}
 
         {entries && stepCount > 0 && (

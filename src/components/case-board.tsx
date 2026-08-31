@@ -16,6 +16,7 @@ import {
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClockIcon,
   PauseIcon,
   SearchIcon,
 } from "lucide-react";
@@ -62,6 +63,7 @@ import {
   WorkflowBadge,
   initials,
   shortDate,
+  shortTime,
 } from "@/components/case-parts";
 import { DetailPanel } from "@/components/case-detail";
 import { AdminActionDialog, RowActionsMenu } from "@/components/case-actions";
@@ -389,6 +391,24 @@ export function CaseBoard({
                           Date.parse(row.hold_until) > Date.now() && (
                             <Badge variant="outline" className="gap-1 text-xs">
                               <CalendarClockIcon className="size-3" />Snoozed
+                            </Badge>
+                          )}
+                        {/* Distinct from "Snoozed" (an admin's own hold) - this is
+                            the worker's own next scheduled step, e.g. a message
+                            deferred until the contact window reopens. Without it
+                            a case that has genuinely done nothing yet looks
+                            identical to one silently waiting on the clock. */}
+                        {!row.paused &&
+                          !(row.hold_until && Date.parse(row.hold_until) > Date.now()) &&
+                          row.next_attempt_at &&
+                          Date.parse(row.next_attempt_at) > Date.now() && (
+                            <Badge
+                              variant="outline"
+                              className="gap-1 text-xs"
+                              title={`Next attempt: ${shortTime(row.next_attempt_at)}`}
+                            >
+                              <ClockIcon className="size-3" />
+                              Next {shortTime(row.next_attempt_at)}
                             </Badge>
                           )}
                       </div>

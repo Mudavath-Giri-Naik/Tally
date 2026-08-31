@@ -263,7 +263,11 @@ describe("clamp", () => {
     const d = clamp(choice(), ctx({ now: new Date("2026-03-10T20:00:00Z") }));
     assert.equal(d.send, false, "must not send outside the window");
     assert.equal(d.intervention, "schedule_retry");
-    assert.match(d.guardrail!, /contact window/);
+    // A short code for the badge - the merchant-facing explanation, with a
+    // time in their own zone rather than a bare ISO stamp, lives in rationale.
+    assert.equal(d.guardrail, "outside_contact_window");
+    assert.match(d.rationale, /contact window/);
+    assert.match(d.rationale, /next attempt is scheduled for/i);
     // 20:00 UTC = 01:30 IST on the 11th -> defers to 08:00 IST that morning.
     assert.equal(d.scheduledFor!.toISOString(), "2026-03-11T02:30:00.000Z");
   });
