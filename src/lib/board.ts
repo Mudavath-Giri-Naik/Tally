@@ -74,6 +74,9 @@ export interface BoardRow {
   event_id: string;
   customer_id: string | null;
   customer_name: string | null;
+  /** Where a message to them would actually land - shown on each attempt. */
+  customer_email: string | null;
+  customer_phone: string | null;
   amount: number | null;
   reason: RootCause;
   reason_label: string;
@@ -186,6 +189,8 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     event_id: String(r.event_id),
     customer_id: (r.customer_id as string) ?? null,
     customer_name: (r.customer_name as string) ?? null,
+    customer_email: (r.customer_email as string) ?? null,
+    customer_phone: (r.customer_phone as string) ?? null,
     amount: r.amount === null ? null : Number(r.amount),
     reason,
     reason_label: profileFor(reason).label,

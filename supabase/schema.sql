@@ -785,6 +785,11 @@ create or replace function merchant_board(
   event_id       uuid,
   customer_id    uuid,
   customer_name  text,
+  -- Where a message would actually go. Shown on each attempt so "sent" can
+  -- be checked against the number or address it went to - the difference
+  -- between a delivery that failed and one that reached the wrong person.
+  customer_email text,
+  customer_phone text,
   amount         bigint,
   reason         text,
   status         text,
@@ -832,6 +837,8 @@ as $fn$
   select e.id,
          c.id,
          c.name,
+         c.email,
+         c.phone,
          e.amount,
          coalesce(e.reason, 'unknown'),
          case

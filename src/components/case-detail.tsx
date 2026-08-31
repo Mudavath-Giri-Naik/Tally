@@ -129,6 +129,69 @@ function FailureNote({ entry }: { entry: TimelineEntry }) {
   );
 }
 
+/**
+ * Who this went to, and the provider's own reference for it.
+ *
+ * "Sent" answers whether the provider accepted the message, which is not the
+ * same question as whether it arrived - a WhatsApp number that never joined
+ * the Twilio sandbox accepts and silently drops. Showing the address it was
+ * accepted for, plus the id to quote at the provider, is what makes the gap
+ * between "sent" and "received" diagnosable rather than mysterious.
+ */
+function DeliveryLine({ to, entry }: { to: string | null; entry: TimelineEntry }) {
+  const reference = entry.outcome === "failed" ? null : entry.response;
+  if (!to && !reference) return null;
+  return (
+    <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      {to && (
+        <span>
+          to <span className="text-foreground font-medium">{to}</span>
+        </span>
+      )}
+      {to && reference && <span aria-hidden="true">·</span>}
+      {reference && <span className="font-mono break-all opacity-80">{reference}</span>}
+    </div>
+  );
+}
+
+/**
+ * The decisions available on this case, rendered inside the step they change.
+ *
+ * Previously a fixed bar pinned to the bottom of the panel, which cost a
+ * standing strip of height on every case whether or not anyone was about to
+ * act. Sitting at the end of the current step instead, it reads as "and here
+ * is what you can do about that" - and only the actions valid for the state
+ * are offered, so a stopped case shows Reopen where a live one shows Pause.
+ */
+function StepActions({
+  actions, onAction,
+}: {
+  actions: AdminActionDef[];
+  onAction?: (action: AdminActionDef) => void;
+}) {
+  if (!onAction || actions.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5 border-t pt-3">
+      {actions.map((action) => {
+        const Icon = ADMIN_ACTION_ICON[action.id];
+        return (
+          <Button
+            key={action.id}
+            variant={action.destructive ? "ghost" : "outline"}
+            size="sm"
+            className={cn("h-7 gap-1.5 text-xs", action.destructive && "text-destructive")}
+            onClick={() => onAction(action)}
+            title={action.description}
+          >
+            <Icon className="size-3.5" />
+            {action.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Timestamp pair: relative for the feel of a live trail, exact for reconciling. */
 function StepTime({ iso }: { iso: string }) {
   return (
@@ -161,7 +224,7 @@ const EMAIL_OUTCOME_ICON: Record<string, React.ComponentType<{ className?: strin
   sent: MailCheckIcon, delivered: MailCheckIcon, failed: MailWarningIcon,
 };
 
-function EmailAttemptCard({ entry }: { entry: TimelineEntry }) {
+function EmailAttemptCard({ entry, to }: { entry: TimelineEntry; to: string | null }) {
   const meta = outcomeMeta(entry.outcome);
   return (
     <div className="rounded-xl border p-4 shadow-sm">
@@ -185,13 +248,14 @@ function EmailAttemptCard({ entry }: { entry: TimelineEntry }) {
           {entry.message}
         </div>
       )}
+      <DeliveryLine to={to} entry={entry} />
       <FailureNote entry={entry} />
       <SourceTag source={entry.source} />
     </div>
   );
 }
 
-function VoiceAttemptCard({ entry }: { entry: TimelineEntry }) {
+function VoiceAttemptCard({ entry, to }: { entry: TimelineEntry; to: string | null }) {
   const meta = outcomeMeta(entry.outcome);
   return (
     <div className="rounded-xl border p-4 shadow-sm">
@@ -213,6 +277,7 @@ function VoiceAttemptCard({ entry }: { entry: TimelineEntry }) {
           <span className="whitespace-pre-wrap">{entry.message}</span>
         </div>
       )}
+      <DeliveryLine to={to} entry={entry} />
       <FailureNote entry={entry} />
       <SourceTag source={entry.source} />
     </div>
@@ -265,7 +330,7 @@ function WhatsAppBubble({ entry }: { entry: TimelineEntry }) {
 }
 
 /** A whole exchange - every consecutive WhatsApp message grouped under one step. */
-function WhatsAppAttemptCard({ entries }: { entries: TimelineEntry[] }) {
+function WhatsAppAttemptCard({ entries, to }: { entries: TimelineEntry[]; to: string | null }) {
   const first = entries[0];
   const anyOutOfWindow = entries.some((e) => e.in_window === false);
   return (
@@ -281,6 +346,8 @@ function WhatsAppAttemptCard({ entries }: { entries: TimelineEntry[] }) {
       <div className="bg-muted/30 mt-3 flex flex-col gap-2 rounded-lg p-3">
         {entries.map((e) => <WhatsAppBubble key={e.id} entry={e} />)}
       </div>
+      <DeliveryLine to={to} entry={entries[entries.length - 1]} />
+      {entries.map((e) => <FailureNote key={`f-${e.id}`} entry={e} />)}
     </div>
   );
 }
@@ -386,36 +453,45 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
  * A stopped case previously just ran out of cards, leaving the merchant to
  * infer from the last one whether anything further would happen.
  */
-function StoppedBanner({ row }: { row: BoardRow }) {
+function StoppedBanner({
+  row, actions, onAction,
+}: {
+  row: BoardRow;
+  actions: AdminActionDef[];
+  onAction?: (action: AdminActionDef) => void;
+}) {
   const label = stopReasonLabel(row.stop_reason);
   const needsHuman = row.status === "needs_human";
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-xl border p-4",
+        "rounded-xl border p-4",
         needsHuman
           ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
           : "bg-muted/40",
       )}
     >
-      {needsHuman ? (
-        <UserIcon className="size-6 shrink-0 text-red-600 dark:text-red-400" aria-hidden="true" />
-      ) : (
-        <BanIcon className="text-muted-foreground size-6 shrink-0" aria-hidden="true" />
-      )}
-      <div className="min-w-0">
-        <div className={cn("font-semibold", needsHuman && "text-red-800 dark:text-red-300")}>
-          {needsHuman ? "Waiting on you" : "Stopped"}
-        </div>
-        <div
-          className={cn(
-            "text-sm",
-            needsHuman ? "text-red-700/80 dark:text-red-400/80" : "text-muted-foreground",
-          )}
-        >
-          {label ?? "No further automated contact is scheduled."}
+      <div className="flex items-center gap-3">
+        {needsHuman ? (
+          <UserIcon className="size-6 shrink-0 text-red-600 dark:text-red-400" aria-hidden="true" />
+        ) : (
+          <BanIcon className="text-muted-foreground size-6 shrink-0" aria-hidden="true" />
+        )}
+        <div className="min-w-0">
+          <div className={cn("font-semibold", needsHuman && "text-red-800 dark:text-red-300")}>
+            {needsHuman ? "Waiting on you" : "Stopped"}
+          </div>
+          <div
+            className={cn(
+              "text-sm",
+              needsHuman ? "text-red-700/80 dark:text-red-400/80" : "text-muted-foreground",
+            )}
+          >
+            {label ?? "No further automated contact is scheduled."}
+          </div>
         </div>
       </div>
+      <StepActions actions={actions} onAction={onAction} />
     </div>
   );
 }
@@ -427,7 +503,13 @@ function StoppedBanner({ row }: { row: BoardRow }) {
  * "the agent has given up" - the single most common thing merchants asked
  * about. Every open case now ends by saying what happens next and when.
  */
-function PendingCard({ row }: { row: BoardRow }) {
+function PendingCard({
+  row, actions, onAction,
+}: {
+  row: BoardRow;
+  actions: AdminActionDef[];
+  onAction?: (action: AdminActionDef) => void;
+}) {
   const waitingUntil =
     row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now()
       ? row.next_attempt_at
@@ -503,6 +585,7 @@ function PendingCard({ row }: { row: BoardRow }) {
           )}
         </>
       )}
+      <StepActions actions={actions} onAction={onAction} />
     </div>
   );
 }
@@ -581,10 +664,16 @@ function AdminActionCard({ entry }: { entry: TimelineEntry }) {
   );
 }
 
-function AttemptGroupCard({ group }: { group: AttemptGroup }) {
-  if (group.kind === "email") return <EmailAttemptCard entry={group.entry} />;
-  if (group.kind === "voice") return <VoiceAttemptCard entry={group.entry} />;
-  if (group.kind === "whatsapp") return <WhatsAppAttemptCard entries={group.entries} />;
+function AttemptGroupCard({ group, row }: { group: AttemptGroup; row: BoardRow }) {
+  if (group.kind === "email") {
+    return <EmailAttemptCard entry={group.entry} to={row.customer_email} />;
+  }
+  if (group.kind === "voice") {
+    return <VoiceAttemptCard entry={group.entry} to={row.customer_phone} />;
+  }
+  if (group.kind === "whatsapp") {
+    return <WhatsAppAttemptCard entries={group.entries} to={row.customer_phone} />;
+  }
   if (group.kind === "admin") return <AdminActionCard entry={group.entry} />;
   return <ResolutionCard entry={group.entry} />;
 }
@@ -707,11 +796,10 @@ export function DetailPanel({
       : (Date.now() - Date.parse(row.failed_on)) / 1000;
 
   return (
-    // Content-sized, not stretched: a short case gets a short panel rather
-    // than one padded out to some other element's height. The viewport cap is
-    // what keeps a long trail readable - past it the timeline scrolls inside
-    // the panel, while the header, the actions and the footer stay put.
-    <Card className="gap-0 py-0 max-h-[calc(100vh-3rem)] overflow-hidden">
+    // A fixed frame, not a variable one: the panel is the same size whatever
+    // the case, and everything inside it scrolls. Sizing to content made the
+    // whole column jump every time a different row was opened.
+    <Card className="gap-0 py-0 h-[calc(100vh-3rem)] overflow-hidden">
       <div className="flex items-center gap-2.5 border-b p-3 sm:px-4">
         <Avatar className="size-8 shrink-0">
           <AvatarFallback className="text-xs font-bold">{initials(row.customer_name)}</AvatarFallback>
@@ -751,7 +839,7 @@ export function DetailPanel({
                 isLast={false}
                 tone={toneForGroup(g)}
               >
-                <AttemptGroupCard group={g} />
+                <AttemptGroupCard group={g} row={row} />
               </TimelineStep>
             ))}
 
@@ -768,7 +856,7 @@ export function DetailPanel({
                 isLast
                 tone={row.status === "needs_human" ? "failed" : "resolution"}
               >
-                <StoppedBanner row={row} />
+                <StoppedBanner row={row} actions={actions} onAction={onAction} />
               </TimelineStep>
             )}
 
@@ -777,44 +865,13 @@ export function DetailPanel({
                 this is the one step that has not finished happening. */}
             {!row.recovered_at && !showStopped && (
               <TimelineStep index={groups.length + 2} isLast tone="pending" live={!row.paused}>
-                <PendingCard row={row} />
+                <PendingCard row={row} actions={actions} onAction={onAction} />
               </TimelineStep>
             )}
           </div>
         )}
       </div>
 
-      {/* The decisions a merchant can take on this case, where they are
-          reading about it - rather than only behind the row's kebab menu,
-          which means closing the story to act on it. */}
-      {onAction && actions.length > 0 && (
-        <>
-          <Separator />
-          <div className="shrink-0 p-3 sm:px-4">
-            <div className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
-              Change the plan
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-            {actions.map((action) => {
-              const Icon = ADMIN_ACTION_ICON[action.id];
-              return (
-                <Button
-                  key={action.id}
-                  variant={action.destructive ? "ghost" : "outline"}
-                  size="sm"
-                  className={cn("h-7 gap-1.5 text-xs", action.destructive && "text-destructive")}
-                  onClick={() => onAction(action)}
-                  title={action.description}
-                >
-                  <Icon className="size-3.5" />
-                  {action.label}
-                </Button>
-              );
-            })}
-            </div>
-          </div>
-        </>
-      )}
 
       <Separator />
       <div className="text-muted-foreground shrink-0 flex flex-wrap items-center gap-x-2 gap-y-1 p-3 text-xs sm:px-4">
