@@ -96,6 +96,8 @@ export interface BoardRow {
   recovered_at: string | null;
   /** The last channel that actually landed, or null if nothing has yet. */
   last_channel: Channel | null;
+  /** Every channel that landed, in the order it was first used. */
+  channels_used: Channel[];
   /** The event's own type - payment_failed, cart_abandoned, and so on. */
   event_type: string;
   /**
@@ -202,6 +204,7 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     failed_on: String(r.failed_on),
     recovered_at: (r.recovered_at as string) ?? null,
     last_channel: (r.last_channel as Channel) ?? null,
+    channels_used: Array.isArray(r.channels_used) ? (r.channels_used as Channel[]) : [],
     event_type: eventType,
     paused: Boolean(r.paused ?? false),
     hold_until: (r.hold_until as string) ?? null,

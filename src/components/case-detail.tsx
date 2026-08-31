@@ -11,7 +11,7 @@
  * Extracted from the Overview when the table moved to the Customers page.
  * It is pure presentation: the timeline is fetched by whoever renders it.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   CheckCheckIcon,
@@ -1032,6 +1032,26 @@ export function DetailPanel({
   // Origin step, the attempts, and always exactly one closing step - resolved,
   // stopped, or waiting.
   const stepCount = 2 + groups.length;
+  /**
+   * Keep the newest thing in view.
+   *
+   * The panel is read from the bottom - the current step, the plan, the last
+   * thing said - so opening a case at the top of a long history, or leaving
+   * it there after a reply lands, shows the least useful part of it.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const chatDepth = persistedChat.length + chat.length;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // After paint, or the height being scrolled to is the one before the new
+    // message was laid out.
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [row.event_id, entries, chatDepth, asking]);
+
   const actions = availableAdminActions({
     status: row.status,
     paused: row.paused,
@@ -1096,7 +1116,7 @@ export function DetailPanel({
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {error && <p className="text-destructive p-8 text-center text-sm">{error}</p>}
         {!entries && !error && (
           <p className="text-muted-foreground p-8 text-center text-sm">Loading the timeline…</p>

@@ -333,10 +333,12 @@ export function CaseBoard({
         }
         // Anything it actually did leaves a row in the audit trail, so the
         // story above the chat has to be re-read for the chat to make sense.
-        // The trail now holds both turns, so reload it and drop the local
-        // copies rather than rendering each exchange twice.
-        await loadTimeline(openEvent);
+        // Quietly, and clearing the optimistic turn in the same commit as the
+        // reload that replaces it. loadTimeline blanks the panel first, which
+        // both lost the scroll position and left the local copy on screen
+        // beside the stored one for a frame - the message appearing twice.
         setChats((c) => ({ ...c, [openEvent]: [] }));
+        await loadTimelineQuietly(openEvent);
       } catch {
         setChats((c) => ({
           ...c,
@@ -493,7 +495,28 @@ export function CaseBoard({
                     </TableCell>
                     <TableCell><WorkflowBadge workflow={row.workflow} /></TableCell>
                     <TableCell><Badge variant="secondary">{row.reason_label}</Badge></TableCell>
-                    <TableCell><ChannelMark channel={row.last_channel} /></TableCell>
+                    <TableCell>
+                      {/* The sequence, not just the endpoint: a case worked
+                          over email and then WhatsApp showed only the second,
+                          so the escalation itself was invisible here. */}
+                      {row.channels_used.length > 0 ? (
+                        <span className="flex items-center gap-1">
+                          {row.channels_used.map((c, i) => (
+                            <span key={`${c}-${i}`} className="flex items-center gap-1">
+                              {i > 0 && (
+                                <ChevronRightIcon
+                                  className="text-muted-foreground/50 size-3"
+                                  aria-hidden="true"
+                                />
+                              )}
+                              <ChannelMark channel={c} size={16} />
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <ChannelMark channel={null} />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <StatusBadge status={row.status} />

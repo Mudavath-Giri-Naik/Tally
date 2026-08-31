@@ -798,6 +798,11 @@ create or replace function merchant_board(
   failed_on      timestamptz,
   recovered_at   timestamptz,
   last_channel   text,
+  -- Every channel that actually reached them, in the order it was first
+  -- used. last_channel answers "where did we get to"; a case worked over
+  -- email and then WhatsApp was showing only the second, so the table could
+  -- not show that the escalation had happened at all.
+  channels_used  text[],
   -- The event's own type (payment_failed, cart_abandoned, ...). Fixed at six
   -- values by the events_type_valid check constraint - this is what "Active
   -- workflows" on the dashboard counts distinct occurrences of.
@@ -821,6 +826,20 @@ as $fn$
     where a.merchant_id = p_merchant_id
       and a.channel is not null
     order by a.event_id, a.created_at desc
+  ),
+  channels_used as (
+    -- Ordered by when each channel first landed, not alphabetically: the
+    -- sequence is the point - email first, then WhatsApp, then a call.
+    select t.event_id, array_agg(t.channel order by t.first_at) as channels
+    from (
+      select a.event_id, a.channel, min(a.created_at) as first_at
+      from actions a
+      where a.merchant_id = p_merchant_id
+        and a.channel is not null
+        and a.outcome in ('sent', 'delivered')
+      group by a.event_id, a.channel
+    ) t
+    group by t.event_id
   ),
   reached as (
     -- The last channel that actually landed. Deliberately narrower than the
@@ -865,6 +884,7 @@ as $fn$
          e.created_at,
          case when e.status = 'recovered' then e.updated_at end,
          rc.channel,
+         coalesce(cu.channels, '{}')::text[],
          e.type,
          e.paused,
          e.hold_until,
@@ -875,6 +895,7 @@ as $fn$
   left join customers c on c.id = e.customer_id
   left join latest_channel lc on lc.event_id = e.id
   left join reached rc on rc.event_id = e.id
+  left join channels_used cu on cu.event_id = e.id
   where e.merchant_id = p_merchant_id
     and (p_event_id is not null or e.created_at >= p_since)
     and (p_event_id is not null or p_until is null or e.created_at < p_until)
