@@ -1,0 +1,83 @@
+<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tally — AI revenue recovery for Razorpay merchants">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0A0B0F"/>
+      <stop offset="1" stop-color="#15171D"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C7CBD1"/>
+    </linearGradient>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#FFFFFF" opacity="0.06"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5B6069"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="400" rx="28" fill="url(#bg)"/>
+  <rect x="620" width="580" height="400" fill="url(#dots)"/>
+
+  <circle cx="1040" cy="90" r="220" fill="#10B981" opacity="0.10"/>
+  <circle cx="120" cy="360" r="200" fill="#3B82F6" opacity="0.07"/>
+  <text x="1010" y="330" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="360" fill="#FFFFFF" opacity="0.025" text-anchor="middle">₹</text>
+
+  <!-- wordmark -->
+  <rect x="64" y="72" width="56" height="56" rx="14" fill="url(#badge)"/>
+  <path d="M78 100l8 8 16-18" stroke="#0A0B0F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="136" y="116" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="46" fill="#FFFFFF">Tally</text>
+
+  <text x="66" y="160" font-family="Arial, Helvetica, sans-serif" font-weight="600" font-size="13" letter-spacing="2.5" fill="#9AA0AC">AI REVENUE RECOVERY FOR RAZORPAY MERCHANTS</text>
+
+  <line x1="66" y1="188" x2="540" y2="188" stroke="#26292F" stroke-width="1"/>
+
+  <text x="66" y="228" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#C7CBD1">A failed payment isn't one problem — Tally works out</text>
+  <text x="66" y="252" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#C7CBD1">which one it is, then recovers it on its own.</text>
+
+  <!-- stat chips -->
+  <g font-family="Arial, Helvetica, sans-serif">
+    <rect x="66" y="286" width="122" height="34" rx="17" fill="#1B1D22" stroke="#2A2D34"/>
+    <circle cx="86" cy="303" r="4" fill="#10B981"/>
+    <text x="98" y="308" font-size="13" fill="#D5D8DE">Multi-tenant</text>
+
+    <rect x="200" y="286" width="150" height="34" rx="17" fill="#1B1D22" stroke="#2A2D34"/>
+    <circle cx="220" cy="303" r="4" fill="#F59E0B"/>
+    <text x="232" y="308" font-size="13" fill="#D5D8DE">Guardrailed by code</text>
+
+    <rect x="362" y="286" width="132" height="34" rx="17" fill="#1B1D22" stroke="#2A2D34"/>
+    <circle cx="382" cy="303" r="4" fill="#3B82F6"/>
+    <text x="394" y="308" font-size="13" fill="#D5D8DE">240 tests green</text>
+  </g>
+
+  <!-- recovery pipeline -->
+  <text x="940" y="70" font-family="Arial, Helvetica, sans-serif" font-weight="600" font-size="13" letter-spacing="2" fill="#7A808B" text-anchor="middle">RECOVERED, AUTOMATICALLY</text>
+
+  <path d="M794 150 L906 150" stroke="#5B6069" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+  <path d="M974 150 L1086 150" stroke="#5B6069" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+
+  <circle cx="760" cy="150" r="34" fill="#EF4444"/>
+  <path d="M747 137l26 26M773 137l-26 26" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"/>
+  <text x="760" y="204" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#9AA0AC" text-anchor="middle">Failed</text>
+
+  <circle cx="940" cy="150" r="34" fill="#F59E0B"/>
+  <path d="M940 132v20l14 8" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="940" y="204" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#9AA0AC" text-anchor="middle">Reasoned about</text>
+
+  <circle cx="1120" cy="150" r="34" fill="#10B981"/>
+  <path d="M1105 150l11 11 20-22" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="1120" y="204" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#9AA0AC" text-anchor="middle">Recovered</text>
+
+  <!-- mini recovered-over-time bars -->
+  <g opacity="0.85">
+    <rect x="742" y="352" width="14" height="18" rx="2" fill="#EF4444" opacity="0.55"/>
+    <rect x="768" y="340" width="14" height="30" rx="2" fill="#F59E0B" opacity="0.65"/>
+    <rect x="794" y="322" width="14" height="48" rx="2" fill="#F59E0B" opacity="0.8"/>
+    <rect x="820" y="300" width="14" height="70" rx="2" fill="#10B981" opacity="0.75"/>
+    <rect x="846" y="276" width="14" height="94" rx="2" fill="#10B981" opacity="0.9"/>
+    <rect x="872" y="254" width="14" height="116" rx="2" fill="#10B981"/>
+  </g>
+  <text x="742" y="386" font-family="Arial, Helvetica, sans-serif" font-size="11" letter-spacing="1.5" fill="#5B6069">7-DAY RECOVERY TREND</text>
+
+  <text x="1136" y="374" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5B6069" text-anchor="end">Next.js · Supabase · Claude / Gemini</text>
+</svg>

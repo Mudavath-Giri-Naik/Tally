@@ -1,12 +1,191 @@
-# Tally
+<div align="center">
+  <img src="public/readme/banner.svg" alt="Tally — AI revenue recovery for Razorpay merchants" width="100%" />
 
-An AI revenue recovery agent for Razorpay merchants. A business connects its
-own Razorpay keys once; from then on Tally listens for failed payments, works
-out *why* each one failed, and recovers it over email, WhatsApp, or a phone
-call — inside guardrails the merchant sets.
+  <br/><br/>
 
-Multi-tenant from the first commit: one engine, one database, one row per
-merchant. 300 merchants is 300 rows, not 300 deployments.
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=next.js&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white">
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3ECF8E?style=flat-square&logo=supabase&logoColor=white">
+  <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white">
+  <img alt="Razorpay" src="https://img.shields.io/badge/Razorpay-Webhooks-0C2451?style=flat-square&logo=razorpay&logoColor=white">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-240_passing-10B981?style=flat-square">
+  <img alt="Architecture" src="https://img.shields.io/badge/architecture-multi--tenant-6366F1?style=flat-square">
+
+  <p></p>
+
+  <strong>A failed Razorpay payment isn't one problem. Tally works out which one it is — then recovers it, on its own.</strong>
+</div>
+
+<br/>
+
+<div align="center">
+
+[What it does](#what-it-does) ·
+[Architecture](#architecture) ·
+[Journey](#merchant--customer-journey) ·
+[Decision engine](#the-decision-engine) ·
+[Dashboard](#dashboard) ·
+[Tech stack](#tech-stack) ·
+[Configuration](#configuration) ·
+[Model backend](#the-model-backend) ·
+[Quick start](#quick-start) ·
+[Testing](#testing) ·
+[Layout](#layout) ·
+[Limitations](#known-limitations)
+
+</div>
+
+---
+
+## What it does
+
+| | |
+|---|---|
+| 🔌 **Connect once** | A merchant links their Razorpay keys through onboarding — encrypted, never touching `.env`. |
+| 🔎 **Classify, don't guess** | Every failed payment is triaged into a root cause: expired card, insufficient funds, gateway timeout, OTP drop, risk flag. |
+| 🤖 **Decide, then guardrail** | An LLM proposes the intervention; deterministic code enforces contact windows, attempt caps, and opt-outs — not the prompt. |
+| 📨 **Recover across channels** | Email, WhatsApp, or a scripted voice call — whichever fits the cause and the customer. |
+| 🏢 **Multi-tenant from commit one** | One engine, one database, one row per merchant. 300 merchants is 300 rows, not 300 deployments. |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  RP["Razorpay<br/>webhook"] --> WH["/api/webhooks/razorpay<br/>verify signature"]
+  WH --> CLS["classify.ts<br/>root cause"]
+  CLS --> DB[("Postgres<br/>Supabase")]
+
+  CRON["Vercel Cron"] --> WK["worker.ts<br/>SKIP LOCKED claim"]
+  WK --> DB
+  WK --> PF["preflight()<br/>hard stops"]
+  PF --> DEC["decide()<br/>Claude / Gemini"]
+  DEC --> CLAMP["clamp()<br/>guardrails"]
+  CLAMP --> DISP{"dispatch"}
+
+  DISP --> EMAIL["Resend<br/>email"]
+  DISP --> WA["Twilio<br/>WhatsApp"]
+  DISP --> VOICE["Twilio<br/>voice"]
+
+  EMAIL --> CUST(("Customer"))
+  WA --> CUST
+  VOICE --> CUST
+  CUST -- "reply / STOP / promise" --> IB["inbound.ts"]
+  IB --> DB
+  DB --> DASH["Dashboard<br/>live via SSE"]
+```
+
+*The agent proposes; the guardrails dispose. No prompt can talk Tally into messaging an opted-out customer, retrying a card that cannot work, or calling at 3am — those are decisions in code.*
+
+---
+
+## Merchant & customer journey
+
+```mermaid
+sequenceDiagram
+  actor M as Merchant
+  participant T as Tally
+  participant R as Razorpay
+  actor C as Customer
+
+  M->>T: Connect Razorpay keys
+  R--)T: payment.failed webhook
+  T->>T: Classify root cause
+  T->>T: Decide + guardrail the response
+  T->>C: Email / WhatsApp / voice, inside the contact window
+  alt customer pays
+    C->>R: Completes payment
+    R--)T: payment.captured
+    T->>M: Case marked "Recovered" — live
+  else customer replies
+    C--)T: "I'll pay Friday" / "STOP" / "already paid"
+    T->>T: Track the promise · opt them out · flag for a human
+  end
+```
+
+---
+
+## The decision engine
+
+Every root cause gets its own playbook, not a generic nudge:
+
+| Cause | What Tally does |
+|---|---|
+| Insufficient funds | Waits for a likely salary-credit date (1st / 7th / 15th) instead of retrying tonight and failing again. |
+| Expired or blocked card | Never retries. Asks for a different payment method. |
+| Gateway timeout / bank down | Retries quietly and apologises — never implies the customer was declined. |
+| OTP not completed | A fresh link, immediately, no explanation demanded. |
+| International decline | Suggests a domestic card or UPI instead of a plain retry. |
+| Risk / fraud flag | Stops automating. Escalates to a human. |
+
+```mermaid
+flowchart TD
+  E["Event claimed"] --> PF{"preflight()"}
+  PF -- "opted out · capped · risk flagged" --> STOP(["Stopped — nothing sent"])
+  PF -- clear --> DEC["decide()<br/>model picks the intervention"]
+  DEC --> CLAMP{"clamp()"}
+  CLAMP -- "outside contact window" --> DEFER(["Deferred to next window"])
+  CLAMP -- "channel unusable" --> FALLBACK["Falls back to a template"]
+  CLAMP -- allowed --> SEND(["Dispatched + recorded in the audit trail"])
+```
+
+---
+
+## Dashboard
+
+<img src="public/dashboard.png" alt="Tally dashboard — revenue recovered, at risk, and by cause" width="100%" />
+
+| Section | Answers |
+|---|---|
+| **Overview** | Is the agent earning its keep? Money, trend, causes, workflow toggles. |
+| **Customers** | Every case — status, channel, attempts — searchable, filterable, actionable. |
+| **Case detail** | The whole conversation, channel-native: email thread, WhatsApp bubbles, call summary, admin actions. |
+| **Settings** | Contact window, channels, attempt cap, pause switch, webhook URL. |
+
+<img src="public/chat.png" alt="Tally customer detail panel — a channel-native conversation, resolved" width="420" />
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Framework | Next.js 15 (App Router) · React 19 · TypeScript |
+| Database | Supabase Postgres — `FOR UPDATE SKIP LOCKED` claiming, row-level security |
+| AI | Claude (Anthropic) or Gemini, behind one interface, Zod-validated output |
+| Channels | Resend (email) · Twilio (WhatsApp + voice) |
+| UI | Tailwind CSS 4 · shadcn / base-ui · Recharts |
+| Payments | Razorpay SDK · per-merchant AES-256-GCM encrypted credentials |
+
+---
+
+## Configuration
+
+| Kind | Lives in | Notes |
+|---|---|---|
+| Platform-level | `.env` | What Tally itself needs to run — see `.env.example`. |
+| Per-merchant | Onboarding UI → `merchants` row | Razorpay keys, WhatsApp number, contact prefs. AES-256-GCM, bound to their own column — a ciphertext can't be moved from `key_id` onto `key_secret` and still decrypt. Never in `.env`, never shared. |
+
+Nothing reads the environment at import time — a missing variable fails loudly and specifically, only when the feature that needs it runs.
+
+---
+
+## The model backend
+
+```env
+TALLY_LLM_PROVIDER=gemini      # or "anthropic"; defaults to whichever key is set
+GEMINI_API_KEY=...             # GEMINI_MODEL defaults to gemini-3.5-flash
+ANTHROPIC_API_KEY=...          # ANTHROPIC_MODEL defaults to claude-opus-5
+```
+
+Every response is Zod-validated before it reaches the guardrails. Transient upstream failures retry with backoff; an unreachable or unconfigured provider falls back to root-cause-keyed templates — recovery keeps working, it just stops being clever.
+
+| Learned the hard way | |
+|---|---|
+| Gemini Pro tiers 429 on free keys; `-latest` aliases 503 under load | `gemini-3.5-flash` is the reliable default |
+| `@anthropic-ai/sdk` 0.71.x structured output | Lives in the top-level `output_format`, **not** `output_config.format` |
+| `betaZodOutputFormat` calls `z.toJSONSchema` | Zod 4 only — the SDK's peer range claiming 3.25 works is wrong |
 
 ---
 
@@ -14,166 +193,33 @@ merchant. 300 merchants is 300 rows, not 300 deployments.
 
 ```bash
 npm install
-cp .env.example .env          # fill in what you have; see "Configuration"
+cp .env.example .env          # fill in what you have
 npm run stack:up              # local Postgres + PostgREST in Docker
 npm run dev
 ```
 
-Then open `/docs` for the setup guide and `/onboarding` to connect a business.
-
-Against a real Supabase project instead of the local stack:
+Open `/docs` for the setup guide, `/onboarding` to connect a business. Against a real Supabase project instead of the local stack:
 
 ```bash
-npm run db:push               # applies supabase/schema.sql
+npm run db:push                # applies supabase/schema.sql
 npm run dev
 ```
 
 ---
 
-## How it works
+## Testing
 
-```
-Razorpay webhook  ─►  /api/webhooks/razorpay/[merchantId]
-                        verify signature (that merchant's secret)
-                        classify the failure reason
-                        write one row to `events`, respond 200
-                        (no sending, no model calls — Razorpay retries
-                         anything slow, and a slow webhook is how a bad
-                         afternoon becomes a retry storm)
-
-Customer replies ►  /api/webhooks/whatsapp
-                        verify Twilio signature (reject forgeries)
-                        "STOP"            -> opt out, stop every open event
-                        "I'll pay Friday" -> tracked promise_to_pay + due date
-                        "already paid"    -> flag for a human
-                        every reply logged to the same audit trail
-
-Vercel Cron ─────►  /api/cron/worker  ─►  runWorker()
-                        claim_events()   FOR UPDATE SKIP LOCKED,
-                                         round-robin across merchants
-                        preflight()      hard stops, before any tokens
-                        decide()         the model picks the intervention
-                        clamp()          guardrails constrain the choice
-                        dispatch()       email / WhatsApp / voice
-                        recordAction()   the audit trail, always
-```
-
-The agent proposes; the guardrails dispose. No prompt can talk Tally into
-messaging someone who opted out, retrying a card that physically cannot work,
-or calling a customer at 3am — those are decisions in code, not in the model.
-
-### Why the reason matters
-
-The whole product is that a failed payment is not one thing:
-
-| Cause | What Tally does |
+| Command | Covers |
 |---|---|
-| Insufficient funds | Waits for a likely salary-credit date (1st / 7th / 15th). Retrying tonight fails again. |
-| Expired or blocked card | Never retries. Asks for a different payment method. |
-| Gateway timeout / bank down | Retries quietly and apologises. Never implies the customer was declined. |
-| OTP not completed | A fresh link, immediately. No explanation demanded. |
-| International decline | Suggests a domestic card or UPI, not a plain retry. |
-| Risk / fraud flag | Stops automating. Escalates to a human. |
+| `npm test` | 240 unit tests — crypto, classification, guardrails, agent wiring, channels |
+| `npm run stack:up` && `npm run test:db` | Integration tests against real Postgres + PostgREST |
+| `npm run batch -- --dry-run` | A full batch run with invariant checks queried straight from Postgres |
 
----
+Three things a mock can't prove, tested against the real thing:
 
-## Configuration
-
-Two kinds of credential, kept strictly separate:
-
-**Platform-level** (`.env`) — what Tally itself needs to run. See
-`.env.example` for the annotated list.
-
-**Per-merchant** — a merchant's own Razorpay keys, WhatsApp number, and contact
-preferences. Entered through the onboarding UI, encrypted with AES-256-GCM, and
-stored in their `merchants` row. Never in `.env`, never shared between
-merchants.
-
-Credential ciphertext is bound to the column it belongs to (AES-GCM additional
-authenticated data), so a ciphertext cannot be moved from `razorpay_key_id`
-onto `razorpay_key_secret` and still decrypt.
-
-Nothing reads the environment at import time. A missing variable surfaces when
-the feature that needs it runs, naming exactly which variable is missing —
-an unconfigured voice channel does not stop email from working.
-
----
-
-## The model backend
-
-The decision engine runs on either Claude or Gemini. Nothing else in the
-codebase changes when you switch — the guardrails, worker and audit trail only
-depend on getting back a schema-valid decision.
-
-```
-TALLY_LLM_PROVIDER=gemini      # or "anthropic"; if unset, whichever key is set
-GEMINI_API_KEY=...             # GEMINI_MODEL defaults to gemini-3.5-flash
-ANTHROPIC_API_KEY=...          # ANTHROPIC_MODEL defaults to claude-opus-5
-```
-
-Every response is validated against the same Zod schema before it reaches the
-guardrails, so a model returning valid JSON of the wrong shape is rejected
-rather than acted on. Transient upstream failures (429, 5xx, network) are
-retried with backoff; permanent ones (400, bad key) are not. If a provider is
-unreachable or unconfigured, decisions fall back to templates keyed off the root
-cause — recovery keeps working, it just stops being clever.
-
-Model notes, learned the hard way:
-- Gemini's Pro tiers are quota-limited on free keys (429), and the `-latest`
-  aliases return 503 under load. `gemini-3.5-flash` is the reliable default.
-- On `@anthropic-ai/sdk` 0.71.x, structured output goes in the top-level
-  `output_format`, **not** `output_config.format`. The parser reads the former;
-  using the latter makes `parsed_output` silently null and sends every decision
-  down the fallback path with no error.
-- `betaZodOutputFormat` calls `z.toJSONSchema`, which is Zod 4 only. The SDK's
-  peer range claims Zod 3.25 works; it does not.
-
----
-
-## Tests
-
-```bash
-npm test          # unit: crypto, classification, guardrails, agent wiring, channels
-npm run stack:up  # Docker Postgres + PostgREST; prints the TEST_SERVICE_JWT to use
-npm run test:db   # integration: concurrency, ingestion, the full pipeline, insights
-```
-
-`test:db` is the one script that does **not** load `.env`, deliberately. It
-takes `TEST_DB_URL` and `TEST_SERVICE_JWT` from `stack:up`, and these tests
-truncate tables between cases — handing them your production credentials is a
-mistake worth making structurally impossible rather than remembering to avoid.
-The scripts that genuinely need real credentials (`db:push`, `seed`, `worker`,
-`batch`) do load it.
-
-The integration tests run against a real Postgres behind a real PostgREST, using
-the real `@supabase/supabase-js` client. Only two things are faked: the model
-endpoint (so decisions are deterministic) and the outbound transport (so a test
-run does not message anyone).
-
-Some things a mock cannot show you, so these are tested for real:
-
-- **No double-claiming.** 200 events, 8 concurrent workers, every event claimed
-  exactly once. The test is mutation-checked: deleting the `status = 'queued'`
-  recheck in `claim_events` makes it fail with *"an event was claimed by two
-  workers"*.
-- **Idempotency.** Eight parallel deliveries of the same webhook produce one
-  event and one customer.
-- **Tenant isolation.** Two merchants processed concurrently; no action, event,
-  or customer crosses the boundary.
-
----
-
-## The batch run
-
-```bash
-npm run batch -- --dry-run --per-merchant=15   # records sends instead of making them
-npm run batch                                   # real messages to real people
-```
-
-The invariant checks at the end are the point — it is easy to send a lot of
-messages and much harder to prove none of them broke a rule. Every check queries
-Postgres directly rather than trusting the worker's own report, because a worker
-reporting a clean run is exactly what a bug would also look like.
+- **No double-claiming** — 200 events, 8 concurrent workers, every event claimed exactly once (mutation-checked: remove the recheck in `claim_events` and the test fails).
+- **Idempotency** — eight parallel deliveries of one webhook produce one event and one customer.
+- **Tenant isolation** — two merchants processed concurrently, nothing crosses the boundary.
 
 ---
 
@@ -185,58 +231,34 @@ src/lib/
   crypto.ts                AES-256-GCM credential encryption, signature checks
   classify.ts              Razorpay failure -> root cause, and what fixes it
   merchants.ts             onboarding; the only module that touches credentials
-  events.ts                event + action repository, always merchant-scoped
-  razorpay.ts              webhook payload normalisation, retry links
-  insights.ts              dashboard aggregation
   agent/
     rules.ts               guardrails: windows, caps, scheduling, the clamp
-    prompt.ts              the decision prompt
     decide.ts              decision + template fallback
-    providers/             Claude and Gemini backends behind one interface
-    worker.ts              claim -> decide -> act -> record
-  inbound.ts               understanding replies: opt-out, promise-to-pay
+    providers/              Claude and Gemini behind one interface
+    worker.ts               claim -> decide -> act -> record
   channels/                email (Resend), whatsapp + voice (Twilio)
 src/components/            dashboard UI: charts, filters, tables, forms
 src/app/
-  (marketing)/             landing, docs, onboarding - the pages with a top bar
-  dashboard/[slug]/        the merchant dashboard, five sections, own sidebar
+  (marketing)/             landing, docs, onboarding
+  dashboard/[slug]/        the merchant dashboard, its own sidebar
   api/                     onboarding, settings, webhooks, the cron tick
 scripts/                   local stack, schema push, seed, worker, batch run
 ```
-
-### The dashboard
-
-A merchant lands on `/dashboard/<business-name>` after onboarding — the slug is
-assigned by a database trigger, deduped if two businesses share a name, and the
-old `/dashboard/<uuid>` links still resolve. Five sections:
-
-| Section | Answers |
-|---|---|
-| Overview | Is the agent earning its keep? Money, trend, causes, recent decisions. |
-| Events | Every recovery case, filterable by status and type, searchable by customer. |
-| Customers | Who keeps failing, who has opted out, who has been recovered. |
-| Agent activity | The full audit trail, including the actions it decided *against*. |
-| Settings | Contact window, channels, attempt cap, pause switch, webhook URL. |
-
-Every page is server-rendered and merchant-scoped; the only client code is the
-hover layer on the charts, the filter row, and the settings form.
 
 ---
 
 ## Known limitations
 
-- **Voice needs `TWILIO_PHONE_NUMBER`.** With it blank the channel reports
-  itself unconfigured and the agent escalates to another channel instead.
-- **WhatsApp uses the Twilio Sandbox.** A recipient must send the sandbox join
-  code before they can receive anything. Fine for testing with people you know,
-  not suitable for real customers. The production path — the merchant connecting
-  their own WhatsApp Business sender — changes only the `from` resolution in
-  `channels/whatsapp.ts`; it is documented but deliberately not built.
-- **Voice is scripted text-to-speech**, not a conversation. A back-and-forth
-  Hinglish agent is the upgrade path, not what ships here.
-- **Contact-window arithmetic assumes a stable UTC offset.** Exact for
-  `Asia/Kolkata` (no DST); in a DST zone it can be an hour out on the single
-  transition night.
-- **Cross-worker message coordination is time-bounded, not locked.** Two workers
-  claiming a customer's two open events in the same instant is guarded by a
-  six-hour recent-contact check rather than a per-customer lock.
+| Limitation | Detail |
+|---|---|
+| Voice needs `TWILIO_PHONE_NUMBER` | Unconfigured, the channel reports itself unusable and the agent escalates elsewhere. |
+| WhatsApp uses the Twilio Sandbox | Recipients must join the sandbox first — not yet a merchant's own WhatsApp Business sender. |
+| Voice is scripted text-to-speech | Not a back-and-forth conversation. |
+| Contact window assumes a stable UTC offset | Exact for `Asia/Kolkata`; can drift an hour on a DST transition night elsewhere. |
+| Cross-worker coordination is time-bounded | A six-hour recent-contact check, not a per-customer lock. |
+
+---
+
+<div align="center">
+  <sub>Built for Razorpay merchants who'd rather the money just came back on its own.</sub>
+</div>
