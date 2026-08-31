@@ -34,6 +34,7 @@ import {
   updateEvent,
   openEventsForCustomer,
   inboundAlreadyRecorded,
+  eventIdsForCustomer,
 } from "@/lib/events";
 import { listMerchants, whatsappNumber, getMerchant } from "@/lib/merchants";
 import { sendWhatsApp } from "@/lib/channels";
@@ -200,19 +201,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     //
     // After `pending` is read, deliberately: recording makes this the newest
     // row, and the question it answers must be found first.
-    // One message is one row. On the shared sandbox number every merchant
-    // sends from the same place, so findCustomersByPhone can return several
-    // customer records for one human - and recording per record wrote the
-    // same reply two or three times. Twilio's own message id is the identity.
+    // One message is one row *per customer record*, and that qualifier is the
+    // fix. One phone can match several records - an old test row and the real
+    // one - and this used to write the message against whichever record came
+    // back first and then stop. findCustomersByPhone does not order its query,
+    // so "first" was whatever Postgres felt like: for six straight replies it
+    // was a record with nothing on the board, and the merchant watched the
+    // agent answer messages that were never shown to have arrived.
+    //
+    // So: every matching record gets the message, deduped within that record
+    // against Twilio's own id, which keeps retries harmless without letting
+    // one thread's copy suppress another's.
     const messageSid = params.MessageSid ?? params.SmsMessageSid ?? null;
-    const alreadyRecorded = messageSid
-      ? await inboundAlreadyRecorded(messageSid).catch(() => false)
-      : false;
 
     for (const customer of customers) {
-      if (alreadyRecorded) break;
       const latest = await latestEventForCustomer(customer.id).catch(() => null);
       if (!latest) continue;
+
+      if (messageSid) {
+        const ids = await eventIdsForCustomer(customer.id).catch(() => [latest.id]);
+        const seen = await inboundAlreadyRecorded(messageSid, ids).catch(() => false);
+        if (seen) continue;
+      }
+
       await recordAction({
         eventId: latest.id,
         merchantId: customer.merchant_id,
@@ -233,9 +244,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         // Losing the transcript must not lose the reply itself.
         console.error("[whatsapp-in] could not record inbound", err);
       });
-      // Recorded once, against the customer's most recent case. The panel
-      // shows it on every case of theirs regardless - see event_timeline.
-      break;
+      // Recorded against this record's most recent case; the panel shows it on
+      // every case of theirs regardless - see event_timeline.
     }
 
     for (const customer of customers) {

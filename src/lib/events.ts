@@ -139,18 +139,42 @@ export async function otherOpenEventsForCustomer(
  * which is what a reply from them applies to - they are not telling us about
  * one event id, they are telling us about their account.
  */
+/** Every event belonging to one customer, newest first. Ids only. */
+export async function eventIdsForCustomer(customerId: string): Promise<string[]> {
+  const { data, error } = await db()
+    .from("events")
+    .select("id")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Could not load their events: ${error.message}`);
+  return (data ?? []).map((row) => (row as { id: string }).id);
+}
+
 /**
- * Has this exact provider message already been written down?
+ * Has this exact provider message already been written down *for this
+ * customer*?
  *
- * Twilio retries a webhook it thinks failed, and on the shared sandbox one
- * inbound can match several customer records - both of which end with the
- * same message appearing twice in a merchant's transcript.
+ * Twilio retries a webhook it thinks failed, so the same message can arrive
+ * twice and must not be transcribed twice.
+ *
+ * The scope is the customer, not the whole table, and that distinction is the
+ * whole point. One phone number can match several customer records - a test
+ * record and a real one, say - and the panel builds each record's thread from
+ * that record's own events. A table-wide check meant the first record to be
+ * written won and every other record's thread simply lost the message: filed
+ * once, somewhere, invisible everywhere the merchant was actually looking.
+ * Per customer, one message is one row in each thread it belongs to.
  */
-export async function inboundAlreadyRecorded(messageSid: string): Promise<boolean> {
+export async function inboundAlreadyRecorded(
+  messageSid: string,
+  eventIds: string[],
+): Promise<boolean> {
+  if (eventIds.length === 0) return false;
   const { data, error } = await db()
     .from("actions")
     .select("id")
     .eq("response", messageSid)
+    .in("event_id", eventIds)
     .limit(1);
   if (error) throw new Error(`Could not check for a duplicate reply: ${error.message}`);
   return (data ?? []).length > 0;
@@ -255,7 +279,13 @@ export async function findCustomersByPhone(
   phone: string,
   merchantId?: string,
 ): Promise<Customer[]> {
-  let q = db().from("customers").select("*").eq("phone", phone);
+  // Ordered, because an unordered query has no defined order and every caller
+  // here was treating the first row as meaningful.
+  let q = db()
+    .from("customers")
+    .select("*")
+    .eq("phone", phone)
+    .order("created_at", { ascending: false });
   if (merchantId) q = q.eq("merchant_id", merchantId);
   const { data, error } = await q;
   if (error) throw new Error(`Could not look up customer: ${error.message}`);

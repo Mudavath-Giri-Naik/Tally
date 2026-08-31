@@ -1198,17 +1198,43 @@ export function DetailPanel({
   // stopped, or waiting.
   const stepCount = 2 + groups.length;
   /**
-   * Keep the newest thing in view.
+   * Keep the newest thing in view - unless you are reading something older.
    *
-   * The panel is read from the bottom - the current step, the plan, the last
-   * thing said - so opening a case at the top of a long history, or leaving
-   * it there after a reply lands, shows the least useful part of it.
+   * The panel is read from the bottom, so opening a case at the top of a long
+   * history shows the least useful part of it. But the timeline is refetched
+   * every few seconds, and `entries` is a new array each time, so this effect
+   * re-fired on every poll and slammed a merchant who had scrolled up back to
+   * the bottom - roughly twice per attempt to read anything.
+   *
+   * So it follows only when you were already at the bottom, which is the
+   * behaviour of every chat app: new messages arrive under you while you read,
+   * and jumping is something the app does with you, not to you. Opening a
+   * different case always jumps, because there is nothing yet to interrupt.
    */
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatDepth = persistedChat.length + pending.length;
+  const pinned = useRef(true);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const onScroll = () => {
+      // A generous threshold: "near enough the bottom" should survive a stray
+      // trackpad nudge, and the last bubble is often taller than a line.
+      pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // A new case starts pinned again, whatever the last one was left at.
+  useEffect(() => {
+    pinned.current = true;
+  }, [row.event_id]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !pinned.current) return;
     // After paint, or the height being scrolled to is the one before the new
     // message was laid out.
     const id = requestAnimationFrame(() => {
