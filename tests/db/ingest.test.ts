@@ -136,6 +136,29 @@ describe("ingest_event", () => {
     assert.equal(rows[0].phone, "+919876543210", "phone should be filled in");
   });
 
+  test("a second order under a different name updates it, rather than keeping the first forever", async () => {
+    await ingest(merchantA, "evt_name_1", { name: "Asha" });
+    await ingest(merchantA, "evt_name_2", { name: "Asha Nair" });
+
+    const { rows } = await pool.query<{ name: string }>("select name from customers");
+    assert.equal(rows.length, 1, "still one customer");
+    assert.equal(
+      rows[0].name,
+      "Asha Nair",
+      "the name given on the most recent order is the one to address them by",
+    );
+  });
+
+  test("an event carrying no name leaves the stored one alone", async () => {
+    // Gap-filling still has to work in reverse: a payload without a name
+    // must not blank a name we already had.
+    await ingest(merchantA, "evt_named", { name: "Asha" });
+    await ingest(merchantA, "evt_nameless", { name: null });
+
+    const { rows } = await pool.query<{ name: string }>("select name from customers");
+    assert.equal(rows[0].name, "Asha");
+  });
+
   test("two merchants seeing the same person keep separate customer rows", async () => {
     await ingest(merchantA, "evt_a1");
     await ingest(merchantB, "evt_b1");

@@ -140,6 +140,46 @@ describe("normalise", () => {
     assert.equal(n.customerPhone, "+919876543210");
   });
 
+  test("falls back to the name on the card when the checkout passed no notes", () => {
+    // A storefront that prefills nothing still leaves the cardholder name
+    // behind. Without this the case reads as "Unknown" in the dashboard.
+    const hook = {
+      event: "payment.failed",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_C",
+            email: "buyer@example.com",
+            error_reason: "payment_failed",
+            error_step: "payment_authentication",
+            card: { name: "Priya Menon", last4: "1111" },
+          },
+        },
+      },
+    };
+    const n = normalise(hook)!;
+    assert.equal(n.customerName, "Priya Menon");
+    // The same payload's step is what saves it from "unknown".
+    assert.equal(n.reason, "authentication_failed");
+  });
+
+  test("a name passed in notes still beats the one on the card", () => {
+    const hook = {
+      event: "payment.failed",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_D",
+            email: "buyer@example.com",
+            notes: { customer_name: "Priya M" },
+            card: { name: "P MENON" },
+          },
+        },
+      },
+    };
+    assert.equal(normalise(hook)!.customerName, "Priya M");
+  });
+
   test("a failure with no error fields still classifies as unknown, not a crash", () => {
     const hook = {
       event: "payment.failed",

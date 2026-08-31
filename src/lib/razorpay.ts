@@ -114,11 +114,18 @@ function extractContact(
     str(notes.phone) ??
     str(notes.customer_phone);
 
+  // Last resort, and only that: the name on the card. A checkout that passes
+  // nothing in notes still leaves this behind, so it is the difference
+  // between addressing someone by name and addressing nobody - but it is the
+  // cardholder, who is not always the person who placed the order, hence last.
+  const card = (payment.card ?? entity.card ?? {}) as Record<string, unknown>;
+
   const name =
     str(customer.name) ??
     str(notes.name) ??
     str(notes.customer_name) ??
-    str(entity.name);
+    str(entity.name) ??
+    str(card.name);
 
   return { name, email, phone: normalisePhone(phoneRaw) };
 }

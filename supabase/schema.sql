@@ -331,10 +331,20 @@ begin
 
       -- Fill in a detail we did not have before (phone arrives with a UPI
       -- failure, email with a card one - same person, one row).
+      --
+      -- The name is the exception, and takes the incoming value instead: it
+      -- is a display label, not an identity key, and the name someone gave
+      -- on the order that just failed is the one to address them by. Keeping
+      -- the first one forever - which coalesce(name, ...) did - meant a
+      -- customer who reordered under a corrected spelling, a married name,
+      -- or a different person on the same phone was chased under a stale
+      -- name for good. Email and phone deliberately keep gap-fill semantics:
+      -- those carry the unique indexes, so overwriting one can collide with
+      -- another customer's row rather than merely looking wrong.
       update customers
          set email = coalesce(email, p_customer_email),
              phone = coalesce(phone, p_customer_phone),
-             name  = coalesce(name,  p_customer_name)
+             name  = coalesce(p_customer_name, name)
        where id = v_customer_id;
     end if;
   end if;
