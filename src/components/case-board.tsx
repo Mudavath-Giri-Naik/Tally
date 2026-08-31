@@ -91,21 +91,6 @@ export function CaseBoard({
 
   const { isMobile, setOpen: setSidebarOpen } = useSidebar();
 
-  // The panel's height must track the table's, never the other way - a long
-  // conversation should scroll inside the panel, not stretch the row and
-  // leave the table with dead space beneath its last row. ResizeObserver
-  // rather than CSS alone because "match this sibling's height, one
-  // direction only" has no pure-CSS answer; align-items: stretch equalises
-  // to whichever side is taller.
-  const tableCardRef = useRef<HTMLDivElement>(null);
-  const [tableHeight, setTableHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const el = tableCardRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setTableHeight(entry.contentRect.height));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // The nav rail and the detail panel are both competing for width, so the
   // rail collapses to icons for as long as the panel is open - on mobile the
@@ -252,7 +237,7 @@ export function CaseBoard({
     // ever pushing the row wider than its container. No viewport breakpoint,
     // sidebar width, or zoom level can make this overflow.
     <div className={cn("grid gap-6", openRow && "lg:grid-cols-[minmax(320px,1fr)_minmax(0,400px)]")}>
-      <Card ref={tableCardRef} className="min-w-0 gap-0 py-0">
+      <Card className="min-w-0 gap-0 py-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4 sm:p-6">
           <CardTitle>All cases</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
@@ -486,11 +471,14 @@ export function CaseBoard({
         )}
       </Card>
 
+      {/* No height tied to the table's any more. The panel now carries the
+          whole story - origin, every step, the plan, the actions - and pinning
+          it to however tall the table happened to be cut that off whenever the
+          table was the shorter of the two. It sizes to its own content
+          instead, capped at the viewport so a long trail stays readable
+          without chasing it up the page. */}
       {openRow && (
-        <div
-          className="min-w-0 lg:sticky lg:top-6 lg:h-(--table-h)"
-          style={tableHeight ? ({ "--table-h": `${tableHeight}px` } as React.CSSProperties) : undefined}
-        >
+        <div className="min-w-0 lg:sticky lg:top-6">
           <DetailPanel
             row={openRow}
             entries={timeline}

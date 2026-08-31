@@ -707,7 +707,11 @@ export function DetailPanel({
       : (Date.now() - Date.parse(row.failed_on)) / 1000;
 
   return (
-    <Card className="gap-0 py-0 h-full max-h-full overflow-hidden">
+    // Content-sized, not stretched: a short case gets a short panel rather
+    // than one padded out to some other element's height. The viewport cap is
+    // what keeps a long trail readable - past it the timeline scrolls inside
+    // the panel, while the header, the actions and the footer stay put.
+    <Card className="gap-0 py-0 max-h-[calc(100vh-3rem)] overflow-hidden">
       <div className="flex items-center gap-2.5 border-b p-3 sm:px-4">
         <Avatar className="size-8 shrink-0">
           <AvatarFallback className="text-xs font-bold">{initials(row.customer_name)}</AvatarFallback>
