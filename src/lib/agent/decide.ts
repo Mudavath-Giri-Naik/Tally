@@ -14,7 +14,7 @@ import { profileFor } from "../classify";
 import { formatINR } from "../types";
 import type { Channel } from "../types";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt";
-import { getProvider, type AgentDecision } from "./providers";
+import { type AgentDecision } from "./providers";
 import { providerFor } from "./rotating";
 import {
   clamp,
