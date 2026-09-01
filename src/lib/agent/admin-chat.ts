@@ -83,6 +83,9 @@ export function explainFailure(raw: string): string {
   if (s.includes("unverified") || s.includes("not verified")) {
     return "Twilio will only message verified numbers on a trial account.";
   }
+  if (s.includes("daily messages limit") || s.includes("63038")) {
+    return "This Twilio trial account has hit its 50-message daily cap. It clears in 24 hours, or upgrading the Twilio account removes the limit entirely.";
+  }
   if (s.includes("21211") || s.includes("invalid") && s.includes("number")) {
     return "That phone number is not one the provider will accept.";
   }
