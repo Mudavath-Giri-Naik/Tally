@@ -9,12 +9,6 @@ import {
   SparklesIcon,
   ArrowUpRightIcon,
   WorkflowIcon,
-  SendIcon,
-  ClockIcon,
-  GitMergeIcon,
-  OctagonXIcon,
-  EyeIcon,
-  LockKeyholeIcon,
 } from "lucide-react";
 
 import { listMerchants } from "@/lib/merchants";
@@ -26,51 +20,6 @@ import { FeaturesBento } from "@/components/marketing/features-bento";
 // Real merchant data, queried live - not something to prerender once and go
 // stale.
 export const dynamic = "force-dynamic";
-
-const FEATURE_CARDS = [
-  {
-    t: "Acts, rather than labels",
-    d: "It sends the message, places the call, and generates the retry link — inside the guardrails you set.",
-    icon: SendIcon,
-    chip: "bg-violet-50 text-violet-600",
-    bar: "from-violet-400 to-violet-500",
-  },
-  {
-    t: "Respects your rules",
-    d: "A contact window, an attempt cap, and an instant stop on opt-out. A message that would land at 2am waits until morning.",
-    icon: ClockIcon,
-    chip: "bg-sky-50 text-sky-600",
-    bar: "from-sky-400 to-sky-500",
-  },
-  {
-    t: "One message, not three",
-    d: "If a customer has a failed subscription and an abandoned cart, they hear from you once, about both.",
-    icon: GitMergeIcon,
-    chip: "bg-amber-50 text-amber-600",
-    bar: "from-amber-400 to-amber-500",
-  },
-  {
-    t: "Knows when to stop",
-    d: "After a few failed cycles, or anything flagged by risk checks, it stops automating and hands over to a person.",
-    icon: OctagonXIcon,
-    chip: "bg-rose-50 text-rose-600",
-    bar: "from-rose-400 to-rose-500",
-  },
-  {
-    t: "Shows its reasoning",
-    d: "Every action records why it was taken, which rule fired, and what was sent. Nothing happens off the record.",
-    icon: EyeIcon,
-    chip: "bg-indigo-50 text-indigo-600",
-    bar: "from-indigo-400 to-indigo-500",
-  },
-  {
-    t: "Your keys, your customers",
-    d: "Your Razorpay credentials are encrypted per business and used only to act for you. Merchants are isolated from each other.",
-    icon: LockKeyholeIcon,
-    chip: "bg-emerald-50 text-emerald-600",
-    bar: "from-emerald-400 to-emerald-500",
-  },
-];
 
 /** Real merchants, with their real recovery figures - not sample data. */
 async function connectedBusinesses() {
@@ -283,7 +232,7 @@ export default async function HomePage() {
           </div>
 
           <div className="mt-12">
-            <FeaturesBento cards={FEATURE_CARDS} />
+            <FeaturesBento />
           </div>
         </div>
       </section>
