@@ -21,6 +21,7 @@ import type {
   DecisionRecord,
 } from "../types";
 import { profileFor } from "../classify";
+import { voiceIsProportionate } from "../costs";
 
 /** Above this, a failure gets faster, more careful escalation (use case 15). */
 export const HIGH_VALUE_PAISE = 500_000; // Rs 5,000
@@ -259,6 +260,22 @@ export function preflight(ctx: DecisionContext): Stop | null {
     };
   }
 
+  // The control arm. Checked after opt-out and reachability on purpose: a
+  // customer who could never have been contacted is not evidence of anything,
+  // so letting them into the control group would credit the agent with
+  // recoveries it was never in a position to influence. What is left is a
+  // clean comparison - people we could have chased and deliberately did not.
+  if (event.holdout) {
+    return {
+      intervention: "stop",
+      stopReason: "holdout_control",
+      rationale:
+        "Held back as an untouched control, so this merchant's recovery rate " +
+        "can be measured against what would have happened anyway. Nothing is " +
+        "sent, and the case is still watched for payment.",
+    };
+  }
+
   if (event.attempts >= merchant.max_attempts) {
     return {
       intervention: "stop",
@@ -313,7 +330,13 @@ export function availableChannels(ctx: DecisionContext): Channel[] {
 
   if (enabled.has("email") && customer?.email) out.push("email");
   if (enabled.has("whatsapp") && customer?.phone) out.push("whatsapp");
-  if (enabled.has("voice") && customer?.phone) out.push("voice");
+  // A call is the most expensive and most intrusive thing here, so it has to
+  // be proportionate to what is being recovered. Enforced as availability
+  // rather than left to the model: "would you phone someone over ninety
+  // rupees" is not a judgement call worth delegating.
+  if (enabled.has("voice") && customer?.phone && voiceIsProportionate(event.amount)) {
+    out.push("voice");
+  }
 
   // Don't repeat the exact same channel twice in a row - if email did not
   // work, escalate rather than send another email.

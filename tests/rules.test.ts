@@ -31,6 +31,7 @@ function merchant(over: Partial<Merchant> = {}): Merchant {
     timezone: "Asia/Kolkata",
     max_attempts: 3,
     channels_enabled: ["email", "whatsapp", "voice"],
+    holdout_percent: 0,
     workflows_enabled: [
       "checkout_abandonment",
       "failed_payment",
@@ -64,6 +65,7 @@ function event(over: Partial<RecoveryEvent> = {}): RecoveryEvent {
     stop_reason: null,
     recovered_amount: null,
     metadata: {},
+    holdout: false,
     paused: false,
     hold_until: null,
     created_at: "2026-01-01T00:00:00Z",
@@ -161,6 +163,31 @@ describe("preflight stops", () => {
     assert.equal(stop?.stopReason, "customer_opted_out");
   });
 
+  test("a held-back event is stopped, and says so as a control", () => {
+    const stop = preflight(ctx({ event: event({ holdout: true }) }));
+    assert.equal(stop?.intervention, "stop");
+    assert.equal(stop?.stopReason, "holdout_control");
+  });
+
+  test("opting out beats the control arm - a held-back case is not special", () => {
+    const stop = preflight(
+      ctx({ event: event({ holdout: true }), customer: customer({ opted_out: true }) }),
+    );
+    assert.equal(stop?.stopReason, "customer_opted_out");
+  });
+
+  test("an unreachable customer never enters the control arm", () => {
+    // Otherwise the control fills with people who could not have been reached
+    // either way, and the comparison stops measuring the agent at all.
+    const stop = preflight(
+      ctx({
+        event: event({ holdout: true }),
+        customer: customer({ email: null, phone: null }),
+      }),
+    );
+    assert.equal(stop?.stopReason, "no_contact_details");
+  });
+
   test("the attempt cap is enforced", () => {
     assert.equal(preflight(ctx({ event: event({ attempts: 2 }) })), null);
     const stop = preflight(ctx({ event: event({ attempts: 3 }) }));
@@ -215,6 +242,24 @@ describe("channel selection", () => {
     );
   });
 
+  test("a call is not offered for an amount too small to justify one", () => {
+    const channels = availableChannels(ctx({ event: event({ amount: 9900 }) }));
+    assert.ok(!channels.includes("voice"));
+    assert.ok(channels.includes("whatsapp"));
+  });
+
+  test("a call is offered once the amount is worth one", () => {
+    assert.ok(
+      availableChannels(ctx({ event: event({ amount: 250000 }) })).includes("voice"),
+    );
+  });
+
+  test("an amount we do not know does not earn a call", () => {
+    assert.ok(
+      !availableChannels(ctx({ event: event({ amount: null }) })).includes("voice"),
+    );
+  });
+
   test("escalates rather than repeating the channel that already failed", () => {
     const prior: Action = {
       id: "a1",
@@ -224,6 +269,7 @@ describe("channel selection", () => {
       message: "first try",
       sent_at: "2026-03-09T10:00:00Z",
       response: null,
+      cost_paise: 3,
       outcome: "sent",
       decision: null,
       created_at: "2026-03-09T10:00:00Z",

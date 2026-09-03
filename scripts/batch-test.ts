@@ -7,9 +7,11 @@
  * end are the point of this script: it is easy to send a lot of messages and
  * much harder to prove none of them broke a rule.
  *
- *   npm run batch -- --dry-run          record sends instead of making them
- *   npm run batch -- --per-merchant=12  batch size
- *   npm run batch                       real sends, real money, real people
+ *   npm run batch -- --dry-run             record sends instead of making them
+ *   npm run batch -- --per-merchant=12     batch size
+ *   npm run batch -- --advance-hours=12    step the clock between rounds, so
+ *                                          the full escalation ladder runs
+ *   npm run batch                          real sends, real money, real people
  *
  * --dry-run substitutes the recording transport. Everything else - the
  * database, classification, the decision engine, the guardrails, scheduling -
@@ -21,12 +23,30 @@ import { ingestEvent } from "../src/lib/events";
 import { runWorker, liveTransport, type WorkerTransport } from "../src/lib/agent/worker";
 import { withinContactWindow } from "../src/lib/agent/rules";
 import { formatINR } from "../src/lib/types";
+import { formatCost } from "../src/lib/costs";
 import type { EventType, RootCause, Merchant } from "../src/lib/types";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const PER_MERCHANT = Number(
   args.find((a) => a.startsWith("--per-merchant="))?.split("=")[1] ?? 10,
+);
+/**
+ * Hours of simulated time to advance between rounds.
+ *
+ * Every schedule this engine writes lands in the future - the backoff between
+ * attempt one and attempt two is measured in hours, and a hold across a closed
+ * contact window in days. At wall-clock speed a batch therefore shows one
+ * attempt per case and stops, which makes the escalation ladder and the
+ * stopping rules - the two things worth proving - invisible.
+ *
+ * Advancing the clock between rounds drives the same production scheduling
+ * code through the whole sequence in seconds. Nothing is mocked: the worker
+ * evaluates real contact windows and real backoffs against a different now.
+ * Zero keeps every round at the real current time.
+ */
+const ADVANCE_HOURS = Number(
+  args.find((a) => a.startsWith("--advance-hours="))?.split("=")[1] ?? 0,
 );
 
 /** A spread of the failures a real week actually produces. */
@@ -52,6 +72,10 @@ const SCENARIOS: Array<{
 ];
 
 const WEIGHTED = SCENARIOS.flatMap((s) => Array<typeof s>(s.weight).fill(s));
+
+/** The duplicate-delivery probe: one webhook, delivered many times at once. */
+const REPLAY_ID = `replay_probe_${Date.now()}`;
+const REPLAY_COPIES = 25;
 
 /** Stand-ins for the ten friends in the real batch. */
 function testers(count: number) {
@@ -130,7 +154,34 @@ async function main() {
       seeded++;
     }
   }
-  console.log(`Seeded ${seeded} events.\n`);
+  console.log(`Seeded ${seeded} events.`);
+
+  /**
+   * Duplicate delivery.
+   *
+   * Razorpay retries a webhook it did not get a 2xx for, and a retry storm
+   * arrives concurrently rather than politely in sequence. Every copy is a
+   * chance to open a second case and chase the same person twice for one
+   * failed payment - the most visible way this system could embarrass a
+   * merchant. Fired all at once, because sequential delivery is the case
+   * that was never in doubt: it is the race that finds a missing index.
+   */
+  await Promise.all(
+    Array.from({ length: REPLAY_COPIES }, () =>
+      ingestEvent({
+        merchantId: merchants[0].id,
+        providerEventId: REPLAY_ID,
+        type: "payment_failed",
+        reason: "insufficient_funds",
+        amount: 99900,
+        customerName: "Replay Probe",
+        customerEmail: `${merchants[0].business_name.toLowerCase()}.replay@example.com`,
+        customerPhone: "+919812340000",
+        metadata: { batch: true, replay_probe: true },
+      }).catch(() => null),
+    ),
+  );
+  console.log(`Delivered the same webhook ${REPLAY_COPIES}x concurrently.\n`);
 
   // ── drive the workers ──
   const startedAt = new Date();
@@ -138,10 +189,18 @@ async function main() {
   const transport = DRY_RUN ? recordingTransport : liveTransport;
 
   for (let round = 1; round <= 5; round++) {
+    // Both workers share one instant. Two workers disagreeing about the time
+    // would be a fiction production never produces, and the contact-window
+    // check is exactly where that fiction would show up as a false pass.
+    const now = new Date(startedAt.getTime() + (round - 1) * ADVANCE_HOURS * 3600_000);
+    if (ADVANCE_HOURS > 0) {
+      console.log(`
+  [clock] round ${round} runs as ${now.toISOString()}`);
+    }
     // Two workers, concurrently - the same contention production sees.
     const [a, b] = await Promise.all([
-      runWorker({ workerId: `batch-a-${round}`, batchSize: 15, transport }),
-      runWorker({ workerId: `batch-b-${round}`, batchSize: 15, transport }),
+      runWorker({ workerId: `batch-a-${round}`, batchSize: 15, transport, now }),
+      runWorker({ workerId: `batch-b-${round}`, batchSize: 15, transport, now }),
     ]);
     for (const r of [a, b]) {
       totals.claimed += r.claimed;
@@ -297,6 +356,40 @@ async function verify(merchants: Merchant[], since: Date) {
     `${crossCustomer.rows[0].count} crossed`,
   );
 
+  // 8. Duplicate delivery.
+  const replayed = await pg.query<{ events: string; actions: string }>(
+    `select
+       (select count(*)::text from events where provider_event_id = $1) as events,
+       (select count(*)::text from actions a
+          join events e on e.id = a.event_id
+         where e.provider_event_id = $1
+           and a.outcome in ('sent','delivered')) as actions`,
+    [REPLAY_ID],
+  );
+  pass(
+    `${REPLAY_COPIES} deliveries of one webhook created exactly one case`,
+    replayed.rows[0].events === "1",
+    `${replayed.rows[0].events} events`,
+  );
+  pass(
+    "and the customer was messaged at most once for it",
+    Number(replayed.rows[0].actions) <= 1,
+    `${replayed.rows[0].actions} messages`,
+  );
+
+  // 9. The control arm was never contacted.
+  const heldContacted = await pg.query<{ count: string }>(
+    `select count(*)::text as count
+       from actions a
+       join events e on e.id = a.event_id
+      where e.holdout and a.outcome in ('sent','delivered')`,
+  );
+  pass(
+    "no held-back customer was contacted",
+    heldContacted.rows[0].count === "0",
+    `${heldContacted.rows[0].count} contacted`,
+  );
+
   // 7. Contact window.
   let outsideWindow = 0;
   for (const m of merchants) {
@@ -342,6 +435,71 @@ async function verify(merchants: Merchant[], since: Date) {
     console.log(`    stopped           ${r.stopped}`);
     console.log(`    value at risk     ${formatINR(Number(r.at_risk))}`);
     console.log(`    value recovered   ${formatINR(Number(r.recovered_amount))}`);
+
+    // What it cost to recover it. A recovery figure without the spend beside
+    // it is half of a subtraction.
+    const spend = await pg.query<{ paise: string }>(
+      `select coalesce(sum(cost_paise),0)::text as paise
+         from actions where merchant_id = $1`,
+      [m.id],
+    );
+    const spent = Number(spend.rows[0].paise);
+    const gained = Number(r.recovered_amount);
+    console.log(`    messaging cost    ${formatCost(spent)}`);
+    console.log(
+      `    return           ${spent > 0 ? ` ${Math.round(gained / spent)}x` : "  n/a"}`,
+    );
+
+    /**
+     * The control arm.
+     *
+     * Both rates are computed the same way over the same window; the only
+     * difference between the arms is whether Tally was allowed to speak. What
+     * separates them is the part of recovery this agent can actually claim -
+     * everything else was going to happen anyway.
+     */
+    const arms = await pg.query<{
+      arm: string; events: string; recovered: string; amount: string;
+    }>(
+      `select case when holdout then 'control' else 'contacted' end as arm,
+              count(*)::text as events,
+              count(*) filter (where status = 'recovered')::text as recovered,
+              coalesce(sum(coalesce(recovered_amount, amount))
+                       filter (where status = 'recovered'),0)::text as amount
+         from events where merchant_id = $1
+        group by 1`,
+      [m.id],
+    );
+    const contacted = arms.rows.find((a) => a.arm === "contacted");
+    const control = arms.rows.find((a) => a.arm === "control");
+    if (control && contacted) {
+      const rate = (a: { events: string; recovered: string }) =>
+        Number(a.events) === 0 ? 0 : (Number(a.recovered) / Number(a.events)) * 100;
+      const lift = rate(contacted) - rate(control);
+      console.log(
+        `    contacted         ${contacted.recovered}/${contacted.events} recovered ` +
+          `(${rate(contacted).toFixed(1)}%)`,
+      );
+      console.log(
+        `    control           ${control.recovered}/${control.events} recovered ` +
+          `(${rate(control).toFixed(1)}%)  - never contacted`,
+      );
+      console.log(`    incremental lift  ${lift >= 0 ? "+" : ""}${lift.toFixed(1)} points`);
+      // Said out loud rather than left for the reader to work out, because a
+      // lift computed over a handful of events is not evidence and quoting it
+      // as though it were is the failure mode this whole arm exists to avoid.
+      if (Number(control.events) < 30) {
+        console.log(
+          `    ! control arm is ${control.events} events - too small to be significant. ` +
+            `The machinery is what is being shown here, not the number.`,
+        );
+      }
+    } else if (!control) {
+      console.log(
+        `    control           none - set holdout_percent above 0 in settings ` +
+          `to measure against an untouched arm`,
+      );
+    }
   }
 
   if (DRY_RUN) {

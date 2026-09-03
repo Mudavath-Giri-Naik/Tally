@@ -63,6 +63,7 @@ export interface SettingsValues {
   contact_window_end: string;
   timezone: string;
   max_attempts: number;
+  holdout_percent: number;
   channels_enabled: Channel[];
   /** Null means the platform default rather than a choice. */
   ai_provider: string | null;
@@ -284,6 +285,30 @@ export function SettingsForm({
                 <p className="text-destructive text-sm">{error}</p>
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="ho">Holdout</Label>
+            <p className="text-muted-foreground -mt-1 text-sm">
+              The share of your customers Tally will never contact, so you can
+              see what it is actually worth. Their failed payments are still
+              tracked - some of them pay anyway, and that is the number worth
+              measuring against. Costs you a little recoverable revenue in
+              exchange for knowing the rest was not a coincidence. Zero turns
+              the comparison off.
+            </p>
+            <Input
+              id="ho"
+              className="max-w-xs"
+              type="number"
+              min={0}
+              max={50}
+              value={form.holdout_percent}
+              onChange={(e) => set("holdout_percent", Number(e.target.value))}
+            />
+            {errorField === "holdout_percent" && (
+              <p className="text-destructive text-sm">{error}</p>
+            )}
           </div>
 
           <div className="space-y-2">

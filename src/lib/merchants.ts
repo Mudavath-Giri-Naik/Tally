@@ -35,6 +35,7 @@ export interface PublicMerchant {
   contact_window_end: string;
   timezone: string;
   max_attempts: number;
+  holdout_percent: number;
   channels_enabled: Channel[];
   workflows_enabled: WorkflowId[];
   active: boolean;
@@ -53,6 +54,7 @@ export interface OnboardingInput {
   contact_window_end?: string;
   timezone?: string;
   max_attempts?: number;
+  holdout_percent?: number;
   channels_enabled?: Channel[];
   workflows_enabled?: WorkflowId[];
 }
@@ -120,6 +122,14 @@ function validate(input: OnboardingInput): void {
       "Maximum attempts must be a whole number between 1 and 10.",
     );
   }
+  if (
+    input.holdout_percent !== undefined &&
+    (!Number.isInteger(input.holdout_percent) ||
+      input.holdout_percent < 0 ||
+      input.holdout_percent > 50)
+  ) {
+    throw new ValidationError("holdout_percent", "The holdout must be a whole percentage between 0 and 50.");
+  }
   if (input.channels_enabled && input.channels_enabled.length === 0) {
     throw new ValidationError(
       "channels_enabled",
@@ -154,6 +164,10 @@ export function toPublic(m: Merchant, baseUrl: string): PublicMerchant {
     contact_window_end: m.contact_window_end,
     timezone: m.timezone,
     max_attempts: m.max_attempts,
+    // Null on a row written before the holdout existed, until the migration's
+    // default lands. Zero is also the right answer for such a merchant: they
+    // never opted into one.
+    holdout_percent: m.holdout_percent ?? 0,
     channels_enabled: m.channels_enabled,
     // A row written before workflows existed reads back as null until the
     // migration's default lands, so fall back rather than render "none on".
@@ -198,6 +212,7 @@ export async function createMerchant(
     contact_window_end: input.contact_window_end ?? "19:00",
     timezone: input.timezone ?? "Asia/Kolkata",
     max_attempts: input.max_attempts ?? 3,
+    holdout_percent: input.holdout_percent ?? 0,
     channels_enabled: input.channels_enabled ?? ["email", "whatsapp"],
     workflows_enabled: input.workflows_enabled?.length
       ? normaliseWorkflows(input.workflows_enabled)
@@ -306,6 +321,7 @@ export async function updateMerchantSettings(
       | "contact_window_end"
       | "timezone"
       | "max_attempts"
+      | "holdout_percent"
       | "channels_enabled"
       | "workflows_enabled"
       | "active"

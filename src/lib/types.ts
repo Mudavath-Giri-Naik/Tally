@@ -67,6 +67,12 @@ export interface Merchant {
   timezone: string;
   max_attempts: number;
   channels_enabled: Channel[];
+  /**
+   * Share of this merchant's customers held back from contact entirely, as an
+   * untouched control arm. Zero means every case is chased and the recovery
+   * figure has nothing to be compared against.
+   */
+  holdout_percent: number;
   /** Which of the four recovery workflows this merchant runs. */
   workflows_enabled: WorkflowId[];
   /**
@@ -115,6 +121,11 @@ export interface RecoveryEvent {
   stop_reason: string | null;
   recovered_amount: number | null;
   metadata: Record<string, unknown>;
+  /**
+   * Assigned to the untouched control arm: never contacted, still measured.
+   * Decided once at ingest so an event cannot drift between arms.
+   */
+  holdout: boolean;
   // [+] admin overrides: suppress automation without changing status (paused)
   // or before a fixed date (hold_until), independent of the retry backoff.
   paused: boolean;
@@ -133,6 +144,8 @@ export interface Action {
   response: string | null;
   outcome: ActionOutcome;
   decision: DecisionRecord | null;
+  /** What this attempt cost to send, in paise. Zero if nothing went out. */
+  cost_paise: number;
   created_at: string;
 }
 

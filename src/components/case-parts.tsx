@@ -405,6 +405,7 @@ export const STOP_REASON_LABEL: Record<string, string> = {
   admin_escalated: "Escalated by an admin",
   customer_opted_out: "Customer opted out",
   no_contact_details: "No email or phone on file",
+  holdout_control: "Control group - deliberately not contacted",
   max_attempts_reached: "Attempt limit reached",
   no_channels_enabled: "No channels switched on",
   workflow_disabled: "This workflow is switched off",

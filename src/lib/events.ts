@@ -63,13 +63,23 @@ export async function ingestEvent(input: IngestInput): Promise<RecoveryEvent> {
  * Claim a batch of events for this worker. Round-robin across merchants,
  * FOR UPDATE SKIP LOCKED - see the function definition in schema.sql.
  */
+/**
+ * Claim a batch for this worker.
+ *
+ * `now` overrides the clock the eligibility predicates are evaluated against,
+ * so a batch run can step forward through a schedule the engine wrote in the
+ * future instead of waiting out six real hours to see a retry. Omitted in
+ * production, where the database's own clock is the only honest one.
+ */
 export async function claimEvents(
   workerId: string,
   limit = 20,
+  now?: Date,
 ): Promise<RecoveryEvent[]> {
   const { data, error } = await db().rpc("claim_events", {
     p_worker: workerId,
     p_limit: limit,
+    p_now: now ? now.toISOString() : null,
   });
   if (error) throw new Error(`Could not claim events: ${error.message}`);
   return (data ?? []) as RecoveryEvent[];
@@ -350,6 +360,8 @@ export async function recordAction(input: {
   response?: string | null;
   decision?: DecisionRecord | null;
   sentAt?: string | null;
+  /** What this attempt cost to send, in paise. Zero if nothing went out. */
+  costPaise?: number;
 }): Promise<Action> {
   const { data, error } = await db()
     .from("actions")
@@ -362,6 +374,7 @@ export async function recordAction(input: {
       response: input.response ?? null,
       decision: input.decision ?? null,
       sent_at: input.sentAt ?? null,
+      cost_paise: input.costPaise ?? 0,
     })
     .select()
     .single();

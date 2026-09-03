@@ -32,6 +32,7 @@ type Patch = Partial<
     | "contact_window_end"
     | "timezone"
     | "max_attempts"
+    | "holdout_percent"
     | "channels_enabled"
     | "workflows_enabled"
     | "ai_provider"
@@ -102,6 +103,14 @@ function readPatch(body: Record<string, unknown>): Patch {
       );
     }
     patch.max_attempts = n;
+  }
+
+  if (body.holdout_percent !== undefined) {
+    const n = Number(body.holdout_percent);
+    if (!Number.isInteger(n) || n < 0 || n > 50) {
+      throw new ValidationError("holdout_percent", "The holdout must be a whole percentage between 0 and 50.");
+    }
+    patch.holdout_percent = n;
   }
 
   if (body.channels_enabled !== undefined) {

@@ -82,6 +82,24 @@ alter table merchants add column if not exists workflows_enabled text[] not null
 
 -- Same treatment for an already-deployed database: the create block above
 -- never runs on an existing table, so the column arrives from here.
+-- [+] Measurement: the share of this merchant's customers held back from
+-- contact entirely, as an untouched control arm. Default zero, because a
+-- holdout is a deliberate choice to leave some recoverable revenue alone in
+-- exchange for knowing what the agent is actually worth - not something to
+-- switch on behind a merchant's back. Capped at 50: past that it stops being
+-- a control group and starts being the product not running.
+alter table merchants add column if not exists holdout_percent int not null default 0;
+do $holdout$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'merchants_holdout_percent_valid'
+  ) then
+    alter table merchants add constraint merchants_holdout_percent_valid
+      check (holdout_percent between 0 and 50);
+  end if;
+end
+$holdout$;
+
 alter table merchants add column if not exists ai_provider text;
 alter table merchants add column if not exists ai_model text;
 
@@ -218,6 +236,11 @@ create table if not exists events (
 -- reason as the merchants alter above, and same hard requirement about where
 -- it sits: claim_events below filters on both of these, so it cannot be
 -- created until they are guaranteed to be there.
+-- [+] Measurement: this event was assigned to the untouched control arm and
+-- must never be contacted. Decided once at ingest and stored, rather than
+-- recomputed per worker tick, so an event cannot drift between arms and the
+-- assignment survives a change to the merchant's holdout percentage.
+alter table events add column if not exists holdout boolean not null default false;
 alter table events add column if not exists paused     boolean not null default false;
 alter table events add column if not exists hold_until timestamptz;
 
@@ -269,6 +292,12 @@ create table if not exists actions (
   ))
 );
 
+-- [+] What this attempt cost to send, in paise. Recorded per action rather
+-- than derived from a rate card at read time, because rate cards change and
+-- an audit row should say what was spent then, not what it would cost now.
+-- Zero for anything that never went out - a decision to wait costs nothing.
+alter table actions add column if not exists cost_paise int not null default 0;
+
 create index if not exists actions_event_idx on actions (event_id, created_at);
 create index if not exists actions_merchant_idx on actions (merchant_id, created_at desc);
 
@@ -290,7 +319,19 @@ create index if not exists actions_merchant_idx on actions (merchant_id, created
 --     anyone's second. One merchant dumping 500 failures cannot starve the
 --     other 299.
 -- ===========================================================================
-create or replace function claim_events(p_worker text, p_limit int default 20)
+-- p_now exists so a batch run can travel through time. Every schedule this
+-- engine writes is a timestamp in the future - a retry in six hours, a hold
+-- until Friday - which makes the full escalation ladder impossible to watch
+-- at wall-clock speed. Passing a simulated now lets a demo or a test run the
+-- whole sequence in seconds against the real scheduling logic rather than a
+-- mock of it. It moves only the *eligibility* predicates; claimed_at stays on
+-- real time, so stale-claim recovery keeps working while time is being faked.
+drop function if exists claim_events(text, int);
+create or replace function claim_events(
+  p_worker text,
+  p_limit  int default 20,
+  p_now    timestamptz default null
+)
 returns setof events
 language sql
 as $fn$
@@ -304,12 +345,12 @@ as $fn$
     join merchants m on m.id = e.merchant_id
     where e.status = 'queued'
       and m.active
-      and (e.next_attempt_at is null or e.next_attempt_at <= now())
+      and (e.next_attempt_at is null or e.next_attempt_at <= coalesce(p_now, now()))
       -- Admin overrides: "pause outreach" and "snooze until a date" both
       -- suppress the worker without touching status, so they are checked
       -- here rather than by giving them their own event status.
       and not e.paused
-      and (e.hold_until is null or e.hold_until <= now())
+      and (e.hold_until is null or e.hold_until <= coalesce(p_now, now()))
   ),
   locked as (
     select e.id
@@ -366,6 +407,8 @@ as $fn$
 declare
   v_customer_id uuid;
   v_event       events;
+  v_holdout_pct int;
+  v_holdout     boolean := false;
 begin
   -- Resolve or create the customer, always scoped to this merchant.
   if p_customer_email is not null or p_customer_phone is not null then
@@ -403,13 +446,33 @@ begin
     end if;
   end if;
 
+  -- Assign the control arm.
+  --
+  -- Hashed on the customer, not the event: a person has to be consistently in
+  -- or out, or the same customer gets chased for one failure and left alone
+  -- for the next, which contaminates both arms and produces a lift number
+  -- that means nothing. Deterministic for the same reason - re-running
+  -- ingestion cannot reshuffle who was in the control group.
+  --
+  -- A customer we could never have contacted anyway is not a control: they
+  -- would have been stopped regardless, so counting them would credit the
+  -- agent with recoveries it was never in a position to influence. Preflight
+  -- checks reachability before it checks this, for the same reason.
+  select holdout_percent into v_holdout_pct from merchants where id = p_merchant_id;
+  if v_customer_id is not null and coalesce(v_holdout_pct, 0) > 0 then
+    -- & with int4's max keeps this positive without abs(), which overflows on
+    -- the one input where hashtext can return int4's minimum.
+    v_holdout := ((hashtext(v_customer_id::text)::bigint & 2147483647) % 100)
+                   < v_holdout_pct;
+  end if;
+
   insert into events (
     merchant_id, customer_id, type, reason, amount, currency,
-    due_date, provider_event_id, metadata
+    due_date, provider_event_id, metadata, holdout
   ) values (
     p_merchant_id, v_customer_id, p_type, p_reason, p_amount,
     coalesce(p_currency, 'INR'), p_due_date, p_provider_event_id,
-    coalesce(p_metadata, '{}'::jsonb)
+    coalesce(p_metadata, '{}'::jsonb), v_holdout
   )
   on conflict (merchant_id, provider_event_id)
     where provider_event_id is not null

@@ -37,6 +37,7 @@ import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult, OutboundMessage } from "../channels";
 import type { Merchant, RecoveryEvent, Channel } from "../types";
 import { caseContacts, contactFor } from "../types";
+import { costOf } from "../costs";
 
 /**
  * Outbound side-effects, injectable.
@@ -173,6 +174,10 @@ async function processEvent(
   report: WorkerReport,
   transport: WorkerTransport,
   suppressed: Set<string>,
+  /** This run's clock. Real time in production; a simulated instant when a
+   *  batch is stepping through a schedule. Everything this function schedules
+   *  is relative to it, so a faked now moves the whole ladder together. */
+  now: Date,
 ): Promise<void> {
   try {
     // A sibling event earlier in this same batch already covered this customer
@@ -210,7 +215,7 @@ async function processEvent(
       priorActions,
       siblingEvents,
       priorFailureCount: failures,
-      now: new Date(),
+      now,
     };
 
     // ── hard stops, before any tokens are spent ──
@@ -345,7 +350,7 @@ async function processEvent(
         });
         await requeueFor(
           event.id,
-          new Date(Date.now() + 72 * 3600_000),
+          new Date(now.getTime() + 72 * 3600_000),
           event.attempts + 1,
         );
         report.scheduled++;
@@ -405,7 +410,11 @@ async function processEvent(
       message: sentBody,
       outcome: result.ok ? "sent" : "failed",
       response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
-      sentAt: result.ok ? new Date().toISOString() : null,
+      sentAt: result.ok ? now.toISOString() : null,
+      // Only a message that actually went out costs anything. A decision to
+      // wait, or a send the provider refused, is free and must not inflate
+      // the figure the merchant weighs their recovery against.
+      costPaise: result.ok ? costOf(decision.channel) : 0,
       // Where it went, as a fact about this row rather than something the
       // panel works out again later from details that may since have moved.
       decision: {
@@ -421,7 +430,7 @@ async function processEvent(
           siblingEvents,
           event.id,
           merchant.id,
-          new Date(Date.now() + 72 * 3600_000),
+          new Date(now.getTime() + 72 * 3600_000),
         );
         // Keep the rest of this batch from re-messaging the same person.
         for (const sibling of siblingEvents) suppressed.add(sibling.id);
@@ -447,9 +456,9 @@ async function processEvent(
       if (result.permanent) {
         // This channel will never work for this customer. Try again soon so
         // the agent can pick a different one, rather than burning the cap.
-        await requeueFor(event.id, new Date(Date.now() + 60_000), event.attempts);
+        await requeueFor(event.id, new Date(now.getTime() + 60_000), event.attempts);
       } else {
-        await requeueFor(event.id, new Date(Date.now() + 15 * 60_000), attempts);
+        await requeueFor(event.id, new Date(now.getTime() + 15 * 60_000), attempts);
       }
     }
   } catch (err) {
@@ -459,7 +468,7 @@ async function processEvent(
     console.error("[worker] event failed", { event: event.id, err });
     try {
       // Put it back rather than leaving it stuck in `processing`.
-      await requeueFor(event.id, new Date(Date.now() + 5 * 60_000), event.attempts);
+      await requeueFor(event.id, new Date(now.getTime() + 5 * 60_000), event.attempts);
     } catch {
       // If even that fails, reclaim_stale_events will pick it up later.
     }
@@ -471,12 +480,27 @@ export async function runWorker(
     workerId?: string;
     batchSize?: number;
     transport?: WorkerTransport;
+    /**
+     * The instant this run should believe it is.
+     *
+     * Every schedule this engine writes is in the future - a retry in six
+     * hours, a hold until Friday - so the full escalation ladder is
+     * unwatchable at wall-clock speed. Passing a simulated now lets a batch
+     * step through the whole sequence in seconds against the real scheduling
+     * code, guardrails and contact windows included, rather than a mock of
+     * them. Omit it in production, where the only honest clock is the real
+     * one.
+     */
+    now?: Date;
   } = {},
 ): Promise<WorkerReport> {
   const started = Date.now();
   const workerId = opts.workerId ?? `worker-${randomUUID().slice(0, 8)}`;
   const batchSize = opts.batchSize ?? 20;
   const transport = opts.transport ?? liveTransport;
+  // The run's clock. Distinct from `started`, which measures how long the run
+  // actually took and stays on real time even while this one is faked.
+  const now = opts.now ?? new Date();
 
   const report: WorkerReport = {
     workerId,
@@ -499,7 +523,7 @@ export async function runWorker(
     console.error("[worker] reclaim failed", err);
   }
 
-  const claimed = await claimEvents(workerId, batchSize);
+  const claimed = await claimEvents(workerId, batchSize, opts.now);
   report.claimed = claimed.length;
 
   // Events covered by another event's coordinated message, within this batch.
@@ -508,7 +532,7 @@ export async function runWorker(
   // Sequential on purpose. These calls hit rate-limited third parties, and a
   // burst of parallel sends is how you get throttled by Twilio mid-batch.
   for (const event of claimed) {
-    await processEvent(event, report, transport, suppressed);
+    await processEvent(event, report, transport, suppressed, now);
   }
 
   // Conversations that have gone quiet get one summary each. Last, because a

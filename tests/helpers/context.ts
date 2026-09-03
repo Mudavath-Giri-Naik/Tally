@@ -22,6 +22,7 @@ export function makeMerchant(over: Partial<Merchant> = {}): Merchant {
     timezone: "Asia/Kolkata",
     max_attempts: 3,
     channels_enabled: ["email", "whatsapp", "voice"],
+    holdout_percent: 0,
     workflows_enabled: [
       "checkout_abandonment",
       "failed_payment",
@@ -55,6 +56,7 @@ export function makeEvent(over: Partial<RecoveryEvent> = {}): RecoveryEvent {
     stop_reason: null,
     recovered_amount: null,
     metadata: {},
+    holdout: false,
     paused: false,
     hold_until: null,
     created_at: "2026-01-01T00:00:00Z",
@@ -87,6 +89,7 @@ export function makeAction(over: Partial<Action> = {}): Action {
     response: null,
     outcome: "sent",
     decision: null,
+    cost_paise: 0,
     created_at: "2026-03-09T10:00:00Z",
     ...over,
   };

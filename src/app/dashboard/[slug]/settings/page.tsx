@@ -52,6 +52,7 @@ export default async function SettingsPage({
           contact_window_end: merchant.contact_window_end,
           timezone: merchant.timezone,
           max_attempts: merchant.max_attempts,
+          holdout_percent: merchant.holdout_percent ?? 0,
           channels_enabled: merchant.channels_enabled,
           workflows_enabled: pub.workflows_enabled,
           ai_provider: merchant.ai_provider ?? null,

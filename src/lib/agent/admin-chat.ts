@@ -26,6 +26,7 @@ import { stripInventedLinks, dropUnbackedLinkPromise } from "./links";
 import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult } from "../channels";
 import { profileFor } from "../classify";
+import { costOf } from "../costs";
 import type { Merchant, Customer, AdminActionId } from "../types";
 import {
   ADMIN_ASK_PREFIX,
@@ -441,6 +442,9 @@ async function sendNow(
     outcome: result.ok ? "sent" : "failed",
     response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
     sentAt: result.ok ? new Date().toISOString() : null,
+    // A send an admin asked for costs the merchant exactly what an automatic
+    // one does, so it counts against the same figure.
+    costPaise: result.ok ? costOf(channel) : 0,
     decision: {
       root_cause: row.reason,
       intervention: "send_message",
