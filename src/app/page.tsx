@@ -9,10 +9,6 @@ import {
   SparklesIcon,
   ArrowUpRightIcon,
   WorkflowIcon,
-  BanknoteIcon,
-  CreditCardIcon,
-  ServerCogIcon,
-  SmartphoneIcon,
   SendIcon,
   ClockIcon,
   GitMergeIcon,
@@ -29,37 +25,6 @@ import { HowItWorksDiagram } from "@/components/marketing/how-it-works-diagram";
 // Real merchant data, queried live - not something to prerender once and go
 // stale.
 export const dynamic = "force-dynamic";
-
-const FAILURE_CARDS = [
-  {
-    t: "Insufficient funds",
-    d: "The money will exist later. Tally waits for a likely salary-credit date instead of retrying tonight and failing again.",
-    icon: BanknoteIcon,
-    chip: "bg-amber-50 text-amber-600",
-    bar: "from-amber-400 to-amber-500",
-  },
-  {
-    t: "Expired or blocked card",
-    d: "No retry can ever work. Tally stops retrying and asks for a different payment method instead.",
-    icon: CreditCardIcon,
-    chip: "bg-rose-50 text-rose-600",
-    bar: "from-rose-400 to-rose-500",
-  },
-  {
-    t: "Gateway timeout",
-    d: "The rails broke, not the customer. Tally retries quietly and apologises — it never implies they were declined.",
-    icon: ServerCogIcon,
-    chip: "bg-sky-50 text-sky-600",
-    bar: "from-sky-400 to-sky-500",
-  },
-  {
-    t: "OTP not completed",
-    d: "Just a slip on a busy day. A fresh link and one short nudge, with no explanation demanded.",
-    icon: SmartphoneIcon,
-    chip: "bg-emerald-50 text-emerald-600",
-    bar: "from-emerald-400 to-emerald-500",
-  },
-];
 
 const FEATURE_CARDS = [
   {
@@ -273,11 +238,7 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {/* ── how it works: the pipeline itself, drawn and moving ──
-          Everything in FAILURE_CARDS was already true and already good copy -
-          it just used to be the whole section. It is the supporting evidence
-          now, under a diagram of the actual system a visitor is about to
-          connect their Razorpay account to. */}
+      {/* ── how it works: the pipeline itself, drawn and moving ── */}
       <section id="how-it-works" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
         <div className="mx-auto max-w-2xl text-center">
           <span className="animate-fade-up marketing-motion inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold tracking-wide text-indigo-600 uppercase">
@@ -297,32 +258,6 @@ export default async function HomePage() {
 
         <div className="animate-fade-up marketing-motion mt-14 rounded-[2rem] border border-neutral-200 bg-gradient-to-b from-white to-neutral-50/60 p-4 shadow-sm sm:p-8" style={{ animationDelay: "240ms" }}>
           <HowItWorksDiagram />
-        </div>
-
-        <div className="mx-auto mt-6 max-w-2xl text-center">
-          <p className="text-sm text-neutral-500">
-            Why the <em>reason</em> a payment failed is the whole product:
-          </p>
-        </div>
-
-        <div className="mt-8 grid gap-5 sm:grid-cols-2">
-          {FAILURE_CARDS.map((c, i) => (
-            <div
-              key={c.t}
-              className="animate-fade-up marketing-motion group relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
-              style={{ animationDelay: `${320 + i * 90}ms` }}
-            >
-              <span
-                className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${c.bar} opacity-0 transition-opacity group-hover:opacity-100`}
-                aria-hidden="true"
-              />
-              <span className={`flex size-10 items-center justify-center rounded-xl ${c.chip}`}>
-                <c.icon className="size-5" />
-              </span>
-              <h3 className="mt-4 font-semibold text-neutral-900">{c.t}</h3>
-              <p className="mt-2 text-sm text-neutral-600">{c.d}</p>
-            </div>
-          ))}
         </div>
       </section>
 
