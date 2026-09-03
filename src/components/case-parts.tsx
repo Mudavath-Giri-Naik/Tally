@@ -24,7 +24,7 @@ import {
   UserIcon,
 } from "lucide-react";
 
-import { STATUS_META, type BoardStatus } from "@/lib/board";
+import { STATUS_META, type BoardStatus, type BoardRow } from "@/lib/board";
 import { WORKFLOWS, WORKFLOW_IDS, type WorkflowId } from "@/lib/workflows";
 import type { AdminActionId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,18 @@ export const DOT_CLASS: Record<string, string> = {
   stopped: "bg-muted-foreground/60",
   disputed: "bg-purple-500",
   written_off: "bg-slate-400",
+};
+
+/** Text-only counterpart to STATUS_CLASS, for the dot+label treatment used
+ * in the table's Status column rather than a full badge box. */
+export const STATUS_TEXT_CLASS: Record<string, string> = {
+  recovered: "text-emerald-700 dark:text-emerald-400",
+  chasing: "text-amber-700 dark:text-amber-400",
+  voice: "text-blue-700 dark:text-blue-400",
+  human: "text-red-700 dark:text-red-400",
+  stopped: "text-muted-foreground",
+  disputed: "text-purple-700 dark:text-purple-400",
+  written_off: "text-slate-600 dark:text-slate-400",
 };
 
 /* ── formatters ──────────────────────────────────────────────────────────── */
@@ -103,6 +115,110 @@ export function compactINR(paise: number): string {
   return `₹${Math.round(r)}`;
 }
 
+/* ── avatar colour ───────────────────────────────────────────────────────── */
+
+const AVATAR_PALETTE = [
+  "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300",
+  "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300",
+  "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300",
+  "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300",
+];
+
+/**
+ * A stable tint per customer - hashed from an id that never changes, so the
+ * same person keeps the same colour across a poll or a reload rather than
+ * reshuffling every render the way `Math.random()` would.
+ */
+export function avatarTone(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+}
+
+/* ── recovery chance ─────────────────────────────────────────────────────── */
+
+/**
+ * A quick-glance estimate of how likely a case still is to be paid, scored
+ * from what the row already carries - not a stored or modelled figure, so it
+ * can never disagree with the status sitting right next to it. Resolved
+ * cases resolve to their obvious ends; anything still moving is marked down
+ * for every attempt already spent and up for a cause that can actually
+ * succeed on a retry.
+ */
+export function recoveryChance(row: BoardRow): number {
+  if (row.status === "recovered") return 100;
+  if (row.status === "written_off" || row.status === "opted_out") return 0;
+  if (row.status === "stopped") return 10;
+  if (row.status === "disputed") return 50;
+
+  let score = row.reason_retryable ? 65 : 30;
+  score -= row.attempts * 8;
+  if (row.channels_used.length > 1) score += 8;
+  if (row.status === "needs_human") score -= 15;
+  if (row.status === "escalated_voice") score -= 5;
+  return Math.max(8, Math.min(95, Math.round(score)));
+}
+
+function recoveryTone(value: number): { ring: string; text: string } {
+  if (value >= 70) return { ring: "text-emerald-500", text: "text-emerald-700 dark:text-emerald-400" };
+  if (value >= 40) return { ring: "text-amber-500", text: "text-amber-700 dark:text-amber-400" };
+  return { ring: "text-red-500", text: "text-red-700 dark:text-red-400" };
+}
+
+export function RecoveryRing({ value, size = 34 }: { value: number; size?: number }) {
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c - (value / 100) * c;
+  const tone = recoveryTone(value);
+  return (
+    <div
+      className="relative inline-flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size }}
+      title={`${value}% chance of recovery`}
+    >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} className="stroke-muted" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke}
+          strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+          stroke="currentColor" className={tone.ring}
+        />
+      </svg>
+      <span className={cn("absolute text-[0.6rem] font-bold tabular-nums", tone.text)}>{value}%</span>
+    </div>
+  );
+}
+
+/* ── next action ─────────────────────────────────────────────────────────── */
+
+const NEXT_ACTION_LABEL: Record<BoardStatus, string> = {
+  recovered: "Completed",
+  chasing: "Send reminder",
+  escalated_voice: "Follow-up call",
+  needs_human: "Agent review",
+  stopped: "No action",
+  opted_out: "Opted out",
+  disputed: "Under review",
+  written_off: "Written off",
+};
+
+/**
+ * What happens next on this case, and when - read off the row rather than
+ * kept as a separate field, so it can never say something the schedule
+ * itself does not agree with.
+ */
+export function nextActionFor(row: BoardRow): { label: string; when: string | null } {
+  const label = NEXT_ACTION_LABEL[row.status];
+  if (row.status === "recovered") return { label, when: row.recovered_at };
+  if (row.status === "chasing" || row.status === "escalated_voice" || row.status === "needs_human") {
+    return { label, when: row.next_attempt_at };
+  }
+  return { label, when: null };
+}
+
 /* ── channel ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -145,8 +261,24 @@ export function ChannelMark({ channel, size = 18 }: { channel: string | null; si
   );
 }
 
-export function StatusBadge({ status, className }: { status: BoardStatus; className?: string }) {
+export function StatusBadge({
+  status, className, variant = "badge",
+}: {
+  status: BoardStatus;
+  className?: string;
+  /** "plain" renders a dot + coloured text with no badge box, for a table
+   * column read at a glance rather than a status worn like a tag. */
+  variant?: "badge" | "plain";
+}) {
   const meta = STATUS_META[status];
+  if (variant === "plain") {
+    return (
+      <span className={cn("inline-flex items-center gap-1.5 text-sm font-medium", STATUS_TEXT_CLASS[meta.token], className)}>
+        <span className={cn("size-1.5 shrink-0 rounded-full", DOT_CLASS[meta.token])} aria-hidden="true" />
+        {meta.label}
+      </span>
+    );
+  }
   return (
     <Badge variant="outline" className={cn("gap-1.5 font-medium", STATUS_CLASS[meta.token], className)}>
       <span className={cn("size-1.5 rounded-full", DOT_CLASS[meta.token])} aria-hidden="true" />

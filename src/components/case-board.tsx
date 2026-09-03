@@ -16,9 +16,10 @@ import {
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ClockIcon,
+  FilterIcon,
   PauseIcon,
   SearchIcon,
+  SlidersHorizontalIcon,
 } from "lucide-react";
 
 import { formatINR } from "@/lib/types";
@@ -34,11 +35,12 @@ import { WORKFLOWS } from "@/lib/workflows";
 import type { AdminActionDef } from "@/lib/admin-actions";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/ui/sidebar";
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -58,11 +60,13 @@ import {
 import {
   ChannelMark,
   DOT_CLASS,
-  STATUS_CLASS,
   StatusBadge,
-  WorkflowBadge,
+  WORKFLOW_CLASS,
+  RecoveryRing,
+  avatarTone,
   initials,
-  shortDate,
+  nextActionFor,
+  recoveryChance,
   shortTime,
   stopReasonLabel,
 } from "@/components/case-parts";
@@ -70,6 +74,19 @@ import { DetailPanel, type AdminChatTurn } from "@/components/case-detail";
 import { AdminActionDialog, RowActionsMenu } from "@/components/case-actions";
 
 const PAGE_SIZE = 8;
+
+/** The status pill bar's active-tab fill, one shade per status token - kept
+ * as full literal class strings (not built from DOT_CLASS at runtime) so
+ * Tailwind's static scan can actually find them. */
+const TAB_ACTIVE_CLASS: Record<string, string> = {
+  recovered: "data-active:bg-emerald-500 data-active:text-white",
+  chasing: "data-active:bg-amber-500 data-active:text-white",
+  voice: "data-active:bg-blue-500 data-active:text-white",
+  human: "data-active:bg-red-500 data-active:text-white",
+  stopped: "data-active:bg-slate-500 data-active:text-white",
+  disputed: "data-active:bg-purple-500 data-active:text-white",
+  written_off: "data-active:bg-slate-600 data-active:text-white",
+};
 
 export function CaseBoard({
   slug, data, setData,
@@ -82,7 +99,11 @@ export function CaseBoard({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [channelFilter, setChannelFilter] = useState("all");
+  const [reasonFilter, setReasonFilter] = useState("all");
   const [page, setPage] = useState(1);
+  // Row checkboxes: purely a selection UI for now, scoped to this component -
+  // there is no bulk-action bar yet to spend it on.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
@@ -137,6 +158,7 @@ export function CaseBoard({
       const q = query.trim().toLowerCase();
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (channelFilter !== "all" && (r.last_channel ?? "none") !== channelFilter) return false;
+      if (reasonFilter !== "all" && r.reason !== reasonFilter) return false;
       if (!q) return true;
       const amount = r.amount === null ? "" : String(Math.round(r.amount / 100));
       const workflow = r.workflow ? WORKFLOWS[r.workflow].label : "promise to pay";
@@ -148,7 +170,7 @@ export function CaseBoard({
         amount.includes(q)
       );
     },
-    [query, statusFilter, channelFilter],
+    [query, statusFilter, channelFilter, reasonFilter],
   );
 
   // Counts describe the search results, not the whole table - a count that
@@ -168,13 +190,40 @@ export function CaseBoard({
 
   // Any narrowing invalidates the page number: page 3 of the old result set is
   // not page 3 of the new one.
-  useEffect(() => setPage(1), [query, statusFilter, channelFilter, tab]);
+  useEffect(() => setPage(1), [query, statusFilter, channelFilter, reasonFilter, tab]);
+
+  // The reason dropdown's options: whatever reasons are actually present,
+  // not the full enum - a merchant who has never seen "risk_declined" should
+  // not have to scroll past it.
+  const reasonOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of data.rows) if (!seen.has(r.reason)) seen.set(r.reason, r.reason_label);
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [data.rows]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pages);
   const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const from = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
   const to = Math.min(safePage * PAGE_SIZE, filtered.length);
+
+  const allVisibleSelected = visible.length > 0 && visible.every((r) => selected.has(r.event_id));
+  const toggleAllVisible = useCallback(() => {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (allVisibleSelected) visible.forEach((r) => next.delete(r.event_id));
+      else visible.forEach((r) => next.add(r.event_id));
+      return next;
+    });
+  }, [allVisibleSelected, visible]);
+  const toggleOne = useCallback((eventId: string) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+  }, []);
 
   const openRow = useMemo(
     () => data.rows.find((r) => r.event_id === openEvent) ?? null,
@@ -392,73 +441,133 @@ export function CaseBoard({
     // ever pushing the row wider than its container. No viewport breakpoint,
     // sidebar width, or zoom level can make this overflow.
     <div className={cn("grid gap-6", openRow && "lg:grid-cols-[minmax(320px,1fr)_minmax(0,400px)]")}>
-      <Card className="min-w-0 gap-0 py-0">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4 sm:p-6">
-          <CardTitle>All cases</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by customer name"
-                aria-label="Search customers"
-                className="w-[260px] pl-9"
-              />
-            </div>
-            <Select
-              value={statusFilter}
-              onValueChange={(v) => { setStatusFilter(v ?? "all"); setTab("all"); }}
-            >
-              <SelectTrigger className="w-[152px]">
-                <SelectValue placeholder="All status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All status</SelectItem>
-                {BOARD_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>{STATUS_META[s].label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={channelFilter} onValueChange={(v) => setChannelFilter(v ?? "all")}>
-              <SelectTrigger className="w-[152px]">
-                <SelectValue placeholder="All channels" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All channels</SelectItem>
-                <SelectItem value="email">Email</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="voice">Voice</SelectItem>
-                <SelectItem value="none">Not reached</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
+      {/* Fixed to the chat panel's own height (case-detail.tsx uses the same
+          calc) only once that panel exists - otherwise the table is free to
+          be as tall as its content, same as before. Matching heights without
+          this cap left the "Showing X-Y of Z" footer sitting right after the
+          last row instead of at the bottom whenever the panel was taller. */}
+      <Card className={cn("min-w-0 gap-0 py-0", openRow && "lg:h-[calc(100vh-3rem)] lg:overflow-hidden")}>
+        {/* status pill bar - "All cases" as the one filled pill, every other
+            status as plain text with its own dot, coloured from the same
+            STATUS_CLASS/DOT_CLASS map the badges and the detail panel use
+            rather than a second palette invented just for this bar. */}
         <div className="border-b px-4 py-3 sm:px-6">
+          {/* overflow-x-auto rather than flex-wrap: a narrower left column
+              (chat panel open) used to wrap "Disputed" and "Written off" onto
+              a second line, which then sat on top of the table below instead
+              of pushing it down. One row that scrolls keeps the layout
+              beneath it stable at any column width. */}
           <Tabs
             value={tab}
             onValueChange={(v) => { setTab(v as BoardStatus | "all"); setStatusFilter("all"); }}
+            className="overflow-x-auto"
           >
-            <TabsList className="h-auto flex-wrap">
-              <TabsTrigger value="all">
-                All customers
-                <span className="text-muted-foreground ml-1.5 tabular-nums">{counts.all}</span>
+            <TabsList className="h-auto flex-nowrap gap-1 bg-transparent p-0">
+              <TabsTrigger
+                value="all"
+                className="shrink-0 gap-1.5 rounded-full border-none bg-transparent px-3 font-semibold text-muted-foreground data-active:bg-violet-600 data-active:text-white data-active:shadow-none"
+              >
+                All cases
+                <span className="ml-0.5 tabular-nums opacity-80">{counts.all}</span>
               </TabsTrigger>
               {BOARD_STATUSES.map((s) => (
-                <TabsTrigger key={s} value={s}>
+                <TabsTrigger
+                  key={s}
+                  value={s}
+                  className={cn(
+                    "shrink-0 gap-1.5 rounded-full border-none bg-transparent px-3 text-muted-foreground data-active:shadow-none",
+                    TAB_ACTIVE_CLASS[STATUS_META[s].token],
+                  )}
+                >
                   <span
                     className={cn("size-1.5 rounded-full", DOT_CLASS[STATUS_META[s].token])}
                     aria-hidden="true"
                   />
                   {STATUS_META[s].label}
-                  <span className="text-muted-foreground ml-1 tabular-nums">
-                    {counts[s] ?? 0}
-                  </span>
+                  <span className="ml-0.5 tabular-nums opacity-80">{counts[s] ?? 0}</span>
                 </TabsTrigger>
               ))}
             </TabsList>
           </Tabs>
+        </div>
+
+        {/* filters */}
+        <div className="flex flex-wrap items-center gap-2 border-b p-4 sm:px-6">
+          <div className="relative min-w-[220px] flex-1">
+            <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by customer name, email, phone or case ID"
+              aria-label="Search customers"
+              className="w-full rounded-full pl-9"
+            />
+          </div>
+          <Select value={channelFilter} onValueChange={(v) => setChannelFilter(v ?? "all")}>
+            <SelectTrigger className="w-[150px] rounded-full">
+              <SelectValue placeholder="All channels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All channels</SelectItem>
+              <SelectItem value="email">Email</SelectItem>
+              <SelectItem value="whatsapp">WhatsApp</SelectItem>
+              <SelectItem value="voice">Voice</SelectItem>
+              <SelectItem value="none">Not reached</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={reasonFilter} onValueChange={(v) => setReasonFilter(v ?? "all")}>
+            <SelectTrigger className="w-[150px] rounded-full">
+              <SelectValue placeholder="All reasons" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All reasons</SelectItem>
+              {reasonOptions.map(([reason, label]) => (
+                <SelectItem key={reason} value={reason}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => { setStatusFilter(v ?? "all"); setTab("all"); }}
+          >
+            <SelectTrigger className="w-[150px] rounded-full">
+              <SelectValue placeholder="All status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All status</SelectItem>
+              {BOARD_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>{STATUS_META[s].label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            className="rounded-full text-muted-foreground font-normal"
+            title="More filters coming soon"
+          >
+            More filters
+          </Button>
+          <Button
+            variant="outline" size="icon" className="rounded-full"
+            onClick={() => {
+              setQuery("");
+              setChannelFilter("all");
+              setReasonFilter("all");
+              setStatusFilter("all");
+              setTab("all");
+            }}
+            aria-label="Clear all filters"
+            title="Clear all filters"
+          >
+            <FilterIcon className="size-4" />
+          </Button>
+          <Button
+            variant="outline" size="icon" className="rounded-full"
+            aria-label="Display options"
+            title="Display options"
+          >
+            <SlidersHorizontalIcon className="size-4" />
+          </Button>
         </div>
 
         {visible.length === 0 ? (
@@ -469,18 +578,25 @@ export function CaseBoard({
           </p>
         ) : (
           <>
+            <div className={cn(openRow && "lg:min-h-0 lg:flex-1 lg:overflow-y-auto")}>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Customer</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Workflow</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Channel</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Attempts</TableHead>
-                  <TableHead>Failed on</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allVisibleSelected}
+                      onCheckedChange={toggleAllVisible}
+                      aria-label="Select all cases on this page"
+                    />
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Customer</TableHead>
+                  <TableHead className="text-right text-xs font-semibold tracking-wide text-muted-foreground uppercase">Amount</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Reason</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Channel</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Status</TableHead>
+                  <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Next action</TableHead>
+                  <TableHead className="text-center text-xs font-semibold tracking-wide text-muted-foreground uppercase">Recovery chance</TableHead>
+                  <TableHead className="text-right text-xs font-semibold tracking-wide text-muted-foreground uppercase">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -502,6 +618,13 @@ export function CaseBoard({
                       openEvent === row.event_id && "bg-muted/60",
                     )}
                   >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selected.has(row.event_id)}
+                        onCheckedChange={() => toggleOne(row.event_id)}
+                        aria-label={`Select ${row.customer_name ?? "this case"}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       {/* Under the name rather than as two more columns: the
                           table is already nine wide, and these are read as
@@ -509,22 +632,21 @@ export function CaseBoard({
                           They are this order's details, not the customer
                           record's latest - the same reason the name is. */}
                       <div className="flex items-center gap-2.5">
-                        <Avatar className="size-7 shrink-0">
-                          <AvatarImage src="/icons/user.png" alt={row.customer_name ?? "Unknown"} />
-                          <AvatarFallback className="text-[0.65rem] font-bold">
+                        <Avatar className="size-8 shrink-0">
+                          <AvatarFallback
+                            className={cn("text-xs font-bold", avatarTone(row.customer_id ?? row.event_id))}
+                          >
                             {initials(row.customer_name)}
                           </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
                           <div className="font-medium">{row.customer_name ?? "Unknown"}</div>
-                          {(row.customer_email || row.customer_phone) && (
-                            <div className="text-muted-foreground truncate text-xs">
-                              {row.customer_email ?? row.customer_phone}
-                              {row.customer_email && row.customer_phone && (
-                                <span className="ml-1.5 tabular-nums opacity-80">
-                                  {row.customer_phone}
-                                </span>
-                              )}
+                          {row.customer_email && (
+                            <div className="text-muted-foreground truncate text-xs">{row.customer_email}</div>
+                          )}
+                          {row.customer_phone && (
+                            <div className="text-muted-foreground truncate text-xs tabular-nums">
+                              {row.customer_phone}
                             </div>
                           )}
                         </div>
@@ -533,8 +655,22 @@ export function CaseBoard({
                     <TableCell className="text-right font-semibold tabular-nums">
                       {formatINR(row.amount)}
                     </TableCell>
-                    <TableCell><WorkflowBadge workflow={row.workflow} /></TableCell>
-                    <TableCell><Badge variant="secondary">{row.reason_label}</Badge></TableCell>
+                    <TableCell>
+                      {/* Coloured by workflow rather than a reason-specific
+                          palette: a case's workflow already has a colour
+                          (WorkflowBadge, worn on the detail panel), so this
+                          reuses it instead of inventing a second one. */}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-xs font-medium",
+                          row.workflow ? WORKFLOW_CLASS[row.workflow] : "bg-muted text-muted-foreground",
+                        )}
+                        title={row.workflow ? undefined : "Promise to pay"}
+                      >
+                        {row.reason_label}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       {/* The sequence, not just the endpoint: a case worked
                           over email and then WhatsApp showed only the second,
@@ -559,7 +695,7 @@ export function CaseBoard({
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <StatusBadge status={row.status} />
+                        <StatusBadge status={row.status} variant="plain" />
                         {/* "Needs human" covers a fraud flag, three failed
                             cycles and an admin escalation alike - which one
                             it was decides what the merchant should do. */}
@@ -583,36 +719,30 @@ export function CaseBoard({
                               <CalendarClockIcon className="size-3" />Snoozed
                             </Badge>
                           )}
-                        {/* Distinct from "Snoozed" (an admin's own hold) - this is
-                            the worker's own next scheduled step, e.g. a message
-                            deferred until the contact window reopens. Without it
-                            a case that has genuinely done nothing yet looks
-                            identical to one silently waiting on the clock. */}
-                        {!row.paused &&
-                          !(row.hold_until && Date.parse(row.hold_until) > Date.now()) &&
-                          row.next_attempt_at &&
-                          Date.parse(row.next_attempt_at) > Date.now() && (
-                            <Badge
-                              variant="outline"
-                              className="gap-1 text-xs"
-                              title={`Next attempt: ${shortTime(row.next_attempt_at)}`}
-                            >
-                              <ClockIcon className="size-3" />
-                              Next {shortTime(row.next_attempt_at)}
-                            </Badge>
-                          )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Badge
-                        variant="outline"
-                        className={cn("tabular-nums", row.attempts >= row.max_attempts && STATUS_CLASS.chasing)}
-                      >
-                        {row.attempts}/{row.max_attempts}
-                      </Badge>
+                    <TableCell className="whitespace-normal">
+                      {/* Read off the row rather than a separate field, so it
+                          can never say something the schedule disagrees with -
+                          see nextActionFor. */}
+                      {(() => {
+                        const next = nextActionFor(row);
+                        return (
+                          <div className="min-w-[104px]">
+                            <div className="text-sm font-medium">{next.label}</div>
+                            {next.when && (
+                              <div className="text-muted-foreground text-xs tabular-nums">
+                                {shortTime(next.when)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                      {shortDate(row.failed_on)}
+                    <TableCell>
+                      <div className="flex justify-center">
+                        <RecoveryRing value={recoveryChance(row)} />
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <RowActionsMenu
@@ -624,14 +754,15 @@ export function CaseBoard({
                 ))}
               </TableBody>
             </Table>
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 sm:px-6">
               <span className="text-muted-foreground text-sm tabular-nums">
-                Showing {from}–{to} of {filtered.length}
+                Showing {from}–{to} of {filtered.length} cases
               </span>
               <div className="flex items-center gap-1">
                 <Button
-                  variant="outline" size="icon" disabled={safePage <= 1}
+                  variant="outline" size="icon" className="rounded-lg" disabled={safePage <= 1}
                   onClick={() => setPage(safePage - 1)} aria-label="Previous page"
                 >
                   <ChevronLeftIcon className="size-4" />
@@ -645,7 +776,11 @@ export function CaseBoard({
                       )}
                       <Button
                         variant={n === safePage ? "default" : "outline"}
-                        size="icon" className="tabular-nums"
+                        size="icon"
+                        className={cn(
+                          "rounded-lg tabular-nums",
+                          n === safePage && "bg-violet-600 text-white hover:bg-violet-600/90",
+                        )}
                         onClick={() => setPage(n)}
                       >
                         {n}
@@ -653,7 +788,7 @@ export function CaseBoard({
                     </span>
                   ))}
                 <Button
-                  variant="outline" size="icon" disabled={safePage >= pages}
+                  variant="outline" size="icon" className="rounded-lg" disabled={safePage >= pages}
                   onClick={() => setPage(safePage + 1)} aria-label="Next page"
                 >
                   <ChevronRightIcon className="size-4" />
