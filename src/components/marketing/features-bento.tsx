@@ -205,21 +205,12 @@ function FeatureCell({
           horizontal ? "sm:flex-row sm:items-center sm:gap-6" : ""
         } ${isLead ? "sm:p-8" : ""}`}
       >
-        <span className="relative inline-flex shrink-0">
-          {/* The halo breathes on its own, at rest - the one piece of motion
-              that never waits for a hover to prove the card is alive. */}
-          <span
-            className="animate-node-pulse absolute inset-0 rounded-xl"
-            style={{ "--pulse-color": `rgba(${t.glow},0.4)` } as React.CSSProperties}
-            aria-hidden="true"
-          />
-          <span
-            className={`animate-float relative flex items-center justify-center rounded-xl shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6 ${
-              isLead ? "size-14" : "size-11"
-            } ${t.chip}`}
-          >
-            <Icon className={isLead ? "size-7" : "size-5"} />
-          </span>
+        <span
+          className={`animate-float relative inline-flex shrink-0 items-center justify-center rounded-xl shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6 ${
+            isLead ? "size-14" : "size-11"
+          } ${t.chip}`}
+        >
+          <Icon className={isLead ? "size-7" : "size-5"} />
         </span>
 
         <div className="min-w-0">
