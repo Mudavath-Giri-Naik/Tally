@@ -229,6 +229,52 @@ input[type='number']::-webkit-outer-spin-button {
       transform: scale(1);
     }
   }
+
+  /* ── marketing page motion ────────────────────────────────────────────
+     Small, purposeful, and all disabled under reduced-motion below - none
+     of them carry information on their own, so removing them loses nothing
+     but the motion itself. */
+
+  /* A card settling into place rather than appearing - staggered per card
+     via an inline animation-delay at the call site. */
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* A slow ambient bob for a diagram's icon nodes - enough to read as "this
+     system is alive", not enough to distract from the flow lines doing the
+     actual explaining. */
+  --animate-float: float 5s ease-in-out infinite;
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+  }
+
+  /* A soft halo that expands and fades on the node currently "active" in the
+     diagram - the same heartbeat idea as above, sized for a small icon
+     circle instead of a full card. */
+  --animate-node-pulse: node-pulse 2.4s ease-out infinite;
+  @keyframes node-pulse {
+    0% { box-shadow: 0 0 0 0 var(--pulse-color, oklch(0.6 0.2 260 / 0.35)); }
+    70% { box-shadow: 0 0 0 10px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-motion,
+  .marketing-motion * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 /* ── scrollbars ─────────────────────────────────────────────────────────── */

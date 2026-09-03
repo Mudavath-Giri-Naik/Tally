@@ -4,6 +4,15 @@
  * event on the dashboard without writing code or asking us anything.
  */
 import Link from "next/link";
+import {
+  ArrowRightIcon,
+  FlaskConicalIcon,
+  KeyRoundIcon,
+  MessagesSquareIcon,
+  ScaleIcon,
+  WebhookIcon,
+  WrenchIcon,
+} from "lucide-react";
 
 export const metadata = {
   title: "Setup guide — Tally",
@@ -13,7 +22,27 @@ export const metadata = {
 export default function DocsPage() {
   return (
     <div className="shell shell--narrow" style={{ paddingTop: 48 }}>
-      <h1>Setup guide</h1>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          borderRadius: 999,
+          border: "1px solid rgba(74,133,246,0.3)",
+          background: "rgba(74,133,246,0.08)",
+          color: "#3568d4",
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          padding: "4px 12px",
+          marginBottom: 14,
+        }}
+      >
+        <KeyRoundIcon size={13} />
+        Setup guide
+      </span>
+      <h1>From API key to first recovery</h1>
       <p className="muted">
         Connecting takes about two minutes and needs no code. You will need
         access to your Razorpay dashboard.
@@ -26,7 +55,10 @@ export default function DocsPage() {
       </div>
 
       <section className="section">
-        <h2>What you will need</h2>
+        <h2>
+          <span className="section-icon section-icon--blue"><KeyRoundIcon /></span>
+          What you will need
+        </h2>
         <ul className="muted">
           <li>Your Razorpay Key ID and Key Secret</li>
           <li>The hours you are happy for customers to be contacted</li>
@@ -37,7 +69,10 @@ export default function DocsPage() {
       </section>
 
       <section className="section">
-        <h2>Step by step</h2>
+        <h2>
+          <span className="section-icon section-icon--violet"><WrenchIcon /></span>
+          Step by step
+        </h2>
         <ol className="steps" style={{ marginTop: 20 }}>
           <li>
             <h3>Get your Razorpay API keys</h3>
@@ -106,7 +141,10 @@ export default function DocsPage() {
       </section>
 
       <section className="section">
-        <h2>About the channels</h2>
+        <h2>
+          <span className="section-icon section-icon--emerald"><WebhookIcon /></span>
+          About the channels
+        </h2>
 
         <h3 style={{ marginTop: 20 }}>Email</h3>
         <p className="muted small">
@@ -137,7 +175,10 @@ export default function DocsPage() {
       </section>
 
       <section className="section">
-        <h2>Replies from customers</h2>
+        <h2>
+          <span className="section-icon section-icon--amber"><MessagesSquareIcon /></span>
+          Replies from customers
+        </h2>
         <p className="muted small">
           Recovery is a conversation, not a broadcast. Point Twilio&apos;s
           &ldquo;when a message comes in&rdquo; field at your Tally inbound
@@ -175,7 +216,10 @@ export default function DocsPage() {
       </section>
 
       <section className="section">
-        <h2>The rules Tally follows</h2>
+        <h2>
+          <span className="section-icon section-icon--rose"><ScaleIcon /></span>
+          The rules Tally follows
+        </h2>
         <p className="muted small">
           These are enforced in code, not left to the agent&apos;s judgement:
         </p>
@@ -209,7 +253,10 @@ export default function DocsPage() {
       </section>
 
       <section className="section">
-        <h2>Troubleshooting</h2>
+        <h2>
+          <span className="section-icon section-icon--blue"><FlaskConicalIcon /></span>
+          Troubleshooting
+        </h2>
 
         <h3 style={{ marginTop: 18 }}>No events appear on my dashboard</h3>
         <p className="muted small">
@@ -241,8 +288,13 @@ export default function DocsPage() {
         <p className="muted small" style={{ marginBottom: 16 }}>
           Connecting takes about two minutes.
         </p>
-        <Link className="btn" href="/onboarding">
+        <Link
+          className="btn"
+          href="/onboarding"
+          style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
+        >
           Connect your business
+          <ArrowRightIcon size={15} />
         </Link>
       </div>
     </div>
