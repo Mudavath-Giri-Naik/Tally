@@ -1345,6 +1345,220 @@ as $fn$
 $fn$;
 
 -- ===========================================================================
+-- Evidence
+--
+-- The dashboard answers "what happened". These answer the two questions a
+-- merchant asks before trusting any of it: did it work, and did it behave.
+--
+-- Both are computed in Postgres against the rows themselves rather than from
+-- anything the worker reported about its own run - a worker claiming a clean
+-- week is exactly what a bug would also produce. The same reasoning the batch
+-- harness is built on, moved into the product so a merchant can run it too.
+-- ===========================================================================
+
+-- Did it work: the two arms, side by side.
+--
+-- Contacted and control are counted identically over the same window. The only
+-- difference between them is whether the agent was allowed to speak, so the
+-- gap is the part of recovery it can actually claim - the rest was going to
+-- happen anyway.
+drop function if exists merchant_arms(uuid, timestamptz);
+create or replace function merchant_arms(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '30 days'
+) returns table (
+  arm              text,
+  events           bigint,
+  recovered        bigint,
+  amount_at_risk   bigint,
+  amount_recovered bigint
+)
+language sql stable
+as $fn$
+  select case when e.holdout then 'control' else 'contacted' end as arm,
+         count(*),
+         count(*) filter (where e.status = 'recovered'),
+         coalesce(sum(e.amount), 0),
+         coalesce(sum(coalesce(e.recovered_amount, e.amount))
+                  filter (where e.status = 'recovered'), 0)
+  from events e
+  where e.merchant_id = p_merchant_id
+    and e.created_at >= p_since
+  group by 1;
+$fn$;
+
+-- What the chasing cost, against what it brought back.
+drop function if exists merchant_spend(uuid, timestamptz);
+create or replace function merchant_spend(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '30 days'
+) returns table (
+  channel    text,
+  sent       bigint,
+  cost_paise bigint
+)
+language sql stable
+as $fn$
+  select a.channel,
+         count(*),
+         coalesce(sum(a.cost_paise), 0)
+  from actions a
+  where a.merchant_id = p_merchant_id
+    and a.created_at >= p_since
+    and a.channel is not null
+    and a.outcome in ('sent', 'delivered')
+  group by 1
+  order by 3 desc;
+$fn$;
+
+-- When messages actually went out, in the merchant's own wall-clock hours.
+--
+-- Bucketed by local hour rather than UTC because the contact window is a
+-- promise about the customer's evening, and a heatmap in UTC cannot be read
+-- against it by the person who made the promise.
+drop function if exists merchant_send_hours(uuid, timestamptz);
+create or replace function merchant_send_hours(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '30 days'
+) returns table (
+  hour  int,
+  sends bigint
+)
+language sql stable
+as $fn$
+  select extract(hour from (a.sent_at at time zone m.timezone))::int as hour,
+         count(*)
+  from actions a
+  join merchants m on m.id = a.merchant_id
+  where a.merchant_id = p_merchant_id
+    and a.sent_at is not null
+    and a.sent_at >= p_since
+  group by 1
+  order by 1;
+$fn$;
+
+-- Did it behave: every rule, checked against the rows, one row per rule.
+--
+-- Returns a count of breaches rather than a boolean, because "how many" is the
+-- first thing anyone asks after "did it hold", and a page that has to run a
+-- second query to answer that will eventually disagree with itself.
+drop function if exists merchant_invariants(uuid, timestamptz);
+create or replace function merchant_invariants(
+  p_merchant_id uuid,
+  p_since       timestamptz default now() - interval '30 days'
+) returns table (
+  rule     text,
+  breaches bigint
+)
+language sql stable
+as $fn$
+  -- Attempt caps.
+  select 'attempt_cap'::text,
+         count(*)
+    from events e
+    join merchants m on m.id = e.merchant_id
+   where e.merchant_id = p_merchant_id
+     and e.attempts > m.max_attempts
+
+  union all
+  -- Opt-out, ordered against the moment it was given. Someone messaged before
+  -- they replied STOP was contacted properly; only what came after counts.
+  select 'opt_out_respected',
+         count(*)
+    from actions a
+    join events e    on e.id = a.event_id
+    join customers c on c.id = e.customer_id
+   where a.merchant_id = p_merchant_id
+     and c.opted_out
+     and a.outcome in ('sent', 'delivered')
+     and c.opted_out_at is not null
+     and coalesce(a.sent_at, a.created_at) > c.opted_out_at
+
+  union all
+  -- Retrying a card that cannot work. A message deferred to the contact
+  -- window is written as a schedule too, and is the guardrail working - on a
+  -- dead card that deferred message asks for a different payment method.
+  select 'no_doomed_retry',
+         count(*)
+    from actions a
+   where a.merchant_id = p_merchant_id
+     and a.created_at >= p_since
+     and a.decision->>'intervention' = 'schedule_retry'
+     and coalesce(a.decision->>'guardrail', '') <> 'outside_contact_window'
+     and a.decision->>'root_cause' in
+         ('card_expired','card_blocked','mandate_revoked',
+          'international_declined','risk_declined','mandate_limit_exceeded')
+
+  union all
+  -- Fraud decisions go to a person, never to an automated message.
+  select 'risk_escalated',
+         count(*)
+    from actions a
+   where a.merchant_id = p_merchant_id
+     and a.decision->>'root_cause' = 'risk_declined'
+     and a.outcome in ('sent', 'delivered')
+
+  union all
+  -- Nothing acted on without a trail.
+  select 'audit_complete',
+         count(*)
+    from events e
+   where e.merchant_id = p_merchant_id
+     and e.created_at >= p_since
+     and e.status <> 'queued'
+     and not exists (select 1 from actions a where a.event_id = e.id)
+
+  union all
+  -- Nothing acted on without a reason written down.
+  select 'reason_recorded',
+         count(*)
+    from actions a
+   where a.merchant_id = p_merchant_id
+     and a.created_at >= p_since
+     and (a.decision is null or a.decision->>'rationale' is null)
+
+  union all
+  -- The control arm is only evidence for as long as it stays untouched.
+  select 'control_untouched',
+         count(*)
+    from actions a
+    join events e on e.id = a.event_id
+   where a.merchant_id = p_merchant_id
+     and e.holdout
+     and a.outcome in ('sent', 'delivered')
+
+  union all
+  -- The compliance window, judged the way the worker judges it: local time,
+  -- and a window that wraps past midnight is one window, not two.
+  select 'contact_window',
+         count(*)
+    from actions a
+    join merchants m on m.id = a.merchant_id
+   where a.merchant_id = p_merchant_id
+     and a.sent_at is not null
+     and a.sent_at >= p_since
+     and not (
+       case
+         when m.contact_window_start <= m.contact_window_end then
+           (a.sent_at at time zone m.timezone)::time
+             between m.contact_window_start and m.contact_window_end
+         else
+           (a.sent_at at time zone m.timezone)::time >= m.contact_window_start
+           or (a.sent_at at time zone m.timezone)::time <= m.contact_window_end
+       end
+     )
+
+  union all
+  -- Tenant isolation, from this merchant's side of the fence.
+  select 'tenant_isolated',
+         count(*)
+    from actions a
+    join events e on e.id = a.event_id
+   where a.merchant_id = p_merchant_id
+     and a.merchant_id <> e.merchant_id;
+$fn$;
+
+-- ===========================================================================
 -- Realtime
 --
 -- The dashboard streams changes rather than polling. Only the two tables the

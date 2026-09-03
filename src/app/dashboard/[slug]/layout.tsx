@@ -62,6 +62,7 @@ export default async function DashboardLayout({
   const items: NavItem[] = [
     { href: base, label: "Overview", icon: "overview" },
     { href: `${base}/customers`, label: "Customers", icon: "customers" },
+    { href: `${base}/evidence`, label: "Evidence", icon: "evidence" },
     { href: `${base}/settings`, label: "Settings", icon: "settings" },
   ];
 
