@@ -149,6 +149,11 @@ export interface BoardMetrics {
   amount_at_risk: number;
   recovery_rate: number;
   avg_recovery_seconds: number | null;
+  /** The spread either side of the average. Null when nothing recovered yet. */
+  recovery_fastest_seconds: number | null;
+  recovery_slowest_seconds: number | null;
+  /** Actions a rule produced rather than the model - overrides of every kind. */
+  guardrail_actions: number;
   sent_total: number;
   sent_in_window: number;
   needs_human: number;
@@ -285,6 +290,10 @@ export async function boardMetrics(
   const raw = (data ?? {}) as Record<string, unknown>;
   const causes = (raw.top_causes ?? []) as Array<Record<string, unknown>>;
   const n = (k: string) => Number(raw[k] ?? 0);
+  // Null means "nothing has recovered yet", which is a different statement
+  // from zero seconds and must survive as one.
+  const seconds = (v: unknown) =>
+    v === null || v === undefined ? null : Number(v);
 
   return {
     total_events: n("total_events"),
@@ -293,10 +302,10 @@ export async function boardMetrics(
     amount_recovered: n("amount_recovered"),
     amount_at_risk: n("amount_at_risk"),
     recovery_rate: n("recovery_rate"),
-    avg_recovery_seconds:
-      raw.avg_recovery_seconds === null || raw.avg_recovery_seconds === undefined
-        ? null
-        : Number(raw.avg_recovery_seconds),
+    avg_recovery_seconds: seconds(raw.avg_recovery_seconds),
+    recovery_fastest_seconds: seconds(raw.recovery_fastest_seconds),
+    recovery_slowest_seconds: seconds(raw.recovery_slowest_seconds),
+    guardrail_actions: n("guardrail_actions"),
     sent_total: n("sent_total"),
     sent_in_window: n("sent_in_window"),
     needs_human: n("needs_human"),

@@ -1068,6 +1068,21 @@ as $fn$
       and a.created_at >= p_since
       and (p_until is null or a.created_at < p_until)
   ),
+  -- What the rules did, as distinct from what the model chose.
+  --
+  -- Every action row records which of the two produced it, and the difference
+  -- is the whole argument for this architecture - so it is worth counting
+  -- rather than leaving buried one case at a time. Counts overrides of every
+  -- kind: a hard stop before the model ran, a channel swapped for one that
+  -- was actually available, a message deferred to the contact window.
+  guardrails as (
+    select count(*) as n
+    from actions a
+    where a.merchant_id = p_merchant_id
+      and a.decision->>'source' = 'guardrail'
+      and a.created_at >= p_since
+      and (p_until is null or a.created_at < p_until)
+  ),
   causes as (
     select reason, count(*) as n
     from board
@@ -1095,6 +1110,17 @@ as $fn$
     'avg_recovery_seconds',
       (select round(avg(extract(epoch from (recovered_at - failed_on))))
          from board where status = 'recovered' and recovered_at is not null),
+    -- The spread either side of the average. An average recovery time with no
+    -- range around it hides whether the number describes every case or is one
+    -- slow outlier dragging a pile of fast ones - which is the only thing a
+    -- merchant would actually change anything about.
+    'recovery_fastest_seconds',
+      (select round(min(extract(epoch from (recovered_at - failed_on))))
+         from board where status = 'recovered' and recovered_at is not null),
+    'recovery_slowest_seconds',
+      (select round(max(extract(epoch from (recovered_at - failed_on))))
+         from board where status = 'recovered' and recovered_at is not null),
+    'guardrail_actions', (select n from guardrails),
     'sent_total',        (select count(*) from sent),
     'sent_in_window',
       (select count(*) from sent

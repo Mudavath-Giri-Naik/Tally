@@ -9,6 +9,8 @@
  */
 import {
   CalendarIcon,
+  ClockIcon,
+  ShieldCheckIcon,
   SparklesIcon,
   TrendingDownIcon,
   TrendingUpIcon,
@@ -16,7 +18,7 @@ import {
 } from "lucide-react";
 
 import { formatINR } from "@/lib/types";
-import { RANGES, delta, type Dashboard } from "@/lib/board";
+import { RANGES, delta, formatDuration, type Dashboard } from "@/lib/board";
 import { cn } from "@/lib/utils";
 import { useDashboardStream } from "@/hooks/use-dashboard-stream";
 import { Card, CardContent } from "@/components/ui/card";
@@ -88,13 +90,102 @@ const TONES = {
     bar: "bg-violet-500",
     track: "bg-violet-500/15",
   },
+  sky: {
+    value: "text-sky-600 dark:text-sky-400",
+    chip: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+    bar: "bg-sky-500",
+    track: "bg-sky-500/15",
+  },
+  indigo: {
+    value: "text-indigo-600 dark:text-indigo-400",
+    chip: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+    bar: "bg-indigo-500",
+    track: "bg-indigo-500/15",
+  },
+  slate: {
+    value: "text-slate-700 dark:text-slate-200",
+    chip: "bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    bar: "bg-slate-500",
+    track: "bg-slate-500/15",
+  },
 } as const;
 
 type Tone = keyof typeof TONES;
 
+/** The line every tile opens with: tinted icon, label, and any delta. */
+function TileHead({
+  label, icon: Icon, tone, deltaValue, riseIsGood = true, suffix = "%",
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: Tone;
+  deltaValue?: number | null;
+  riseIsGood?: boolean;
+  suffix?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-md",
+          TONES[tone].chip,
+        )}
+      >
+        <Icon className="size-3.5" />
+      </span>
+      <span className="text-muted-foreground text-xs font-medium">{label}</span>
+      <span className="ml-auto">
+        <DeltaIndicator
+          value={deltaValue ?? null}
+          riseIsGood={riseIsGood}
+          suffix={suffix}
+        />
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Where one figure sits between the best and worst of its kind.
+ *
+ * An average with no range around it hides whether it describes every case or
+ * is one slow outlier dragging a pile of fast ones - and those two situations
+ * want completely different things done about them.
+ */
+function RangeTrack({
+  tone, fastest, slowest, value,
+}: {
+  tone: Tone;
+  fastest: number;
+  slowest: number;
+  value: number;
+}) {
+  const span = slowest - fastest;
+  // Everything recovered in the same time: the marker belongs in the middle,
+  // not at an end, and not dividing by zero to get there.
+  const pct = span <= 0 ? 50 : ((value - fastest) / span) * 100;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className={cn("relative h-1.5 w-full rounded-full", TONES[tone].track)}>
+        <span
+          className={cn(
+            "absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-card",
+            TONES[tone].bar,
+          )}
+          style={{ left: `${Math.min(100, Math.max(0, pct))}%` }}
+        />
+      </div>
+      <div className="text-muted-foreground flex justify-between text-[0.65rem] tabular-nums">
+        <span>{formatDuration(fastest)} fastest</span>
+        <span>{formatDuration(slowest)} slowest</span>
+      </div>
+    </div>
+  );
+}
+
 function StatTile({
   label, icon: Icon, tone, value, unit, detail, fill, deltaValue,
-  riseIsGood = true, suffix = "%",
+  riseIsGood = true, suffix = "%", footer,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -109,24 +200,21 @@ function StatTile({
   deltaValue?: number | null;
   riseIsGood?: boolean;
   suffix?: string;
+  /** Sits where the bar would, for a tile whose proof is not a proportion. */
+  footer?: React.ReactNode;
 }) {
   const t = TONES[tone];
   return (
     <Card size="sm" className="gap-0">
       <CardContent className="flex flex-col gap-2.5">
-        <div className="flex items-center gap-2">
-          <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", t.chip)}>
-            <Icon className="size-3.5" />
-          </span>
-          <span className="text-muted-foreground text-xs font-medium">{label}</span>
-          <span className="ml-auto">
-            <DeltaIndicator
-              value={deltaValue ?? null}
-              riseIsGood={riseIsGood}
-              suffix={suffix}
-            />
-          </span>
-        </div>
+        <TileHead
+          label={label}
+          icon={Icon}
+          tone={tone}
+          deltaValue={deltaValue}
+          riseIsGood={riseIsGood}
+          suffix={suffix}
+        />
 
         <div className="flex items-baseline gap-1.5">
           <span className={cn("text-3xl font-bold tracking-tight tabular-nums", t.value)}>
@@ -152,6 +240,99 @@ function StatTile({
             />
           </div>
         )}
+
+        {footer}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Which failures are growing, and which are receding.
+ *
+ * A count on its own says how common something is; the arrow says whether it
+ * is getting worse, which is the half that decides what a merchant does on
+ * Monday. Compared against the same cause in the window before this one.
+ */
+function MomentumTile({
+  causes, previous,
+}: {
+  causes: Dashboard["metrics"]["top_causes"];
+  previous: Dashboard["metrics"]["top_causes"];
+}) {
+  // Nothing to compare against at all, as opposed to one cause we cannot place.
+  // Three dashes down the column reads as broken; saying it once, plainly,
+  // reads as what it is - a window with no period before it.
+  const noPrior = previous.length === 0;
+  return (
+    <Card size="sm" className="gap-0">
+      <CardContent className="flex flex-col gap-2.5">
+        <TileHead label="Failure cause momentum" icon={TrendingUpIcon} tone="slate" />
+
+        {causes.length === 0 ? (
+          <p className="text-muted-foreground py-2 text-xs">
+            No open failures in this window.
+          </p>
+        ) : (
+          <ul className="flex flex-col">
+            {causes.map((c) => {
+              const before = previous.find((p) => p.reason === c.reason);
+              // A cause missing from the previous window's top three might be
+              // new or might have been just below the cut - unknowable from
+              // here. It gets a dash, because guessing an arrow would be
+              // inventing a trend out of a reporting limit.
+              const dir =
+                before === undefined
+                  ? "unknown"
+                  : c.count > before.count
+                    ? "up"
+                    : c.count < before.count
+                      ? "down"
+                      : "flat";
+              return (
+                <li
+                  key={c.reason}
+                  className="flex items-center justify-between gap-3 border-b py-1.5 text-xs last:border-b-0"
+                >
+                  <span className="truncate">{c.label}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+                    <span className="font-semibold">{c.count}</span>
+                    {!noPrior && dir === "up" && (
+                      <TrendingUpIcon
+                        className="size-3.5 text-red-600 dark:text-red-400"
+                        aria-label="more than last period"
+                      />
+                    )}
+                    {!noPrior && dir === "down" && (
+                      <TrendingDownIcon
+                        className="size-3.5 text-emerald-600 dark:text-emerald-400"
+                        aria-label="fewer than last period"
+                      />
+                    )}
+                    {!noPrior && dir === "flat" && (
+                      <span className="text-muted-foreground" aria-label="unchanged">–</span>
+                    )}
+                    {!noPrior && dir === "unknown" && (
+                      <span
+                        className="text-muted-foreground"
+                        title="Not in the previous period's top causes, so there is nothing to compare against"
+                        aria-label="no comparison available"
+                      >
+                        ·
+                      </span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {noPrior && causes.length > 0 && (
+          <p className="text-muted-foreground text-[0.65rem]">
+            No earlier period to compare against yet
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -166,6 +347,9 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
   // number is two numbers waiting to disagree.
   const needsAttention = data.metrics.needs_human;
   const chasing = data.rows.filter((r) => r.status === "chasing").length;
+  const avg = data.metrics.avg_recovery_seconds;
+  const fastest = data.metrics.recovery_fastest_seconds;
+  const slowest = data.metrics.recovery_slowest_seconds;
 
   return (
     <div className="flex flex-col gap-6">
@@ -283,6 +467,47 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
             )
           }
           deltaValue={delta(data.metrics.sent_total, data.previous.sent_total)}
+        />
+
+        <StatTile
+          label="Avg recovery time"
+          icon={ClockIcon}
+          tone="sky"
+          value={avg === null ? "—" : formatDuration(avg)}
+          detail={
+            avg === null ? "Nothing has recovered yet" : "from failure to payment"
+          }
+          // Slower is worse, so a rise is bad news here.
+          deltaValue={
+            avg !== null && data.previous.avg_recovery_seconds
+              ? delta(avg, data.previous.avg_recovery_seconds)
+              : null
+          }
+          riseIsGood={false}
+          footer={
+            avg !== null && fastest !== null && slowest !== null ? (
+              <RangeTrack tone="sky" fastest={fastest} slowest={slowest} value={avg} />
+            ) : undefined
+          }
+        />
+
+        <StatTile
+          label="Guardrail interventions"
+          icon={ShieldCheckIcon}
+          tone="indigo"
+          value={String(data.metrics.guardrail_actions)}
+          unit={data.metrics.guardrail_actions === 1 ? "action" : "actions"}
+          detail="decided by a rule, not the model"
+          deltaValue={delta(
+            data.metrics.guardrail_actions,
+            data.previous.guardrail_actions,
+          )}
+          riseIsGood={false}
+        />
+
+        <MomentumTile
+          causes={data.metrics.top_causes}
+          previous={data.previous.top_causes}
         />
       </div>
 
