@@ -61,6 +61,8 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { CaseJourney } from "@/components/case-journey";
+import { buildJourney } from "@/lib/journey";
 import {
   ADMIN_ACTION_ICON,
   ChannelMark,
@@ -1322,6 +1324,13 @@ export function DetailPanel({
         )}
         {entries && (
           <div className="p-4 sm:p-6">
+            {/* Where the case has got to, before the story of how it got
+                there. A merchant who just triggered a failure is asking
+                "what is happening now", and making them read down a stack
+                of cards to work that out is answering a question they did
+                not ask first. */}
+            <CaseJourney steps={buildJourney(row, entries)} />
+
             {/* Step one is always the webhook itself: when Razorpay told us,
                 what failed, and what Tally made of it. */}
             <TimelineStep index={1} isLast={false} tone="origin">
