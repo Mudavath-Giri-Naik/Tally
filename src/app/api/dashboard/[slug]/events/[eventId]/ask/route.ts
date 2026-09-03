@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { resolveMerchant } from "@/lib/merchants";
 import { getCustomer } from "@/lib/events";
+import { contactFor } from "@/lib/types";
 import { boardRowForEvent, eventTimeline, boardRows } from "@/lib/board";
 import { askAgent, explainFailure } from "@/lib/agent/admin-chat";
 
@@ -78,10 +79,20 @@ export async function POST(
       (r) => r.customer_id && r.customer_id === row.customer_id && r.event_id !== eventId,
     );
 
+    // The row already resolves the case's own contact details over the
+    // record's, and it is what the merchant is looking at while they type.
+    // Anything the agent sends from here has to go to the address on the row
+    // it was asked about, not to whichever one the shared customer record
+    // happens to hold. See contactFor.
+    const recipient = contactFor(
+      { name: row.customer_name, email: row.customer_email, phone: row.customer_phone },
+      customer,
+    );
+
     const result = await askAgent({
       merchant,
       row,
-      customer,
+      customer: recipient,
       timeline,
       siblings,
       question: question.trim(),

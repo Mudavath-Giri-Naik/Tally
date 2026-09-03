@@ -36,6 +36,7 @@ import { preflight, type DecisionContext } from "./rules";
 import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult, OutboundMessage } from "../channels";
 import type { Merchant, RecoveryEvent, Channel } from "../types";
+import { caseContacts, contactFor } from "../types";
 
 /**
  * Outbound side-effects, injectable.
@@ -191,7 +192,11 @@ async function processEvent(
       return;
     }
 
-    const customer = await getCustomer(event.customer_id);
+    // The record says who they are; the case says where to reach them. Every
+    // consumer below - the guardrails, the prompt, the retry link and the
+    // send itself - reads this one resolved object, so none of them can
+    // disagree about the recipient. See contactFor.
+    const customer = contactFor(caseContacts(event), await getCustomer(event.customer_id));
     const [priorActions, siblingEvents, failures] = await Promise.all([
       actionsForEvent(event.id),
       otherOpenEventsForCustomer(event.merchant_id, event.customer_id, event.id),
@@ -401,7 +406,12 @@ async function processEvent(
       outcome: result.ok ? "sent" : "failed",
       response: result.ok ? (result.providerId ?? null) : (result.error ?? null),
       sentAt: result.ok ? new Date().toISOString() : null,
-      decision,
+      // Where it went, as a fact about this row rather than something the
+      // panel works out again later from details that may since have moved.
+      decision: {
+        ...decision,
+        sent_to: decision.channel === "email" ? recipient.email : recipient.phone,
+      },
     });
 
     if (result.ok) {

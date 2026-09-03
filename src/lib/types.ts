@@ -156,6 +156,17 @@ export interface DecisionRecord {
   scheduled_for?: string | null;
   /** Which override this was, when source is "admin" - see AdminActionId. */
   admin_action?: AdminActionId;
+  /**
+   * The address or number this actually went out to.
+   *
+   * Recorded rather than re-derived. The panel used to label a sent email
+   * with whatever the case resolves to *now*, which is a different question
+   * from where it went *then* - and the two gave different answers, so the
+   * trail confidently named a recipient that had never received it. An audit
+   * row that reports what it did is worth more than one that recomputes what
+   * it would do.
+   */
+  sent_to?: string | null;
 }
 
 export type Intervention =
@@ -181,6 +192,78 @@ export type AdminActionId =
   | "write_off"
   | "opt_out"
   | "reopen_case";
+
+/**
+ * The contact details one case came in with.
+ *
+ * Stamped into the event's metadata at ingest, alongside the customer record
+ * the event is filed under. The two are not the same thing and are not
+ * supposed to be - see contactFor.
+ */
+export interface ContactDetails {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+/** Non-empty strings only: a blank in metadata is an absence, not an address. */
+function present(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+/** What one event's metadata says about who it is for. */
+export function caseContacts(event: Pick<RecoveryEvent, "metadata">): ContactDetails {
+  const md = (event.metadata ?? {}) as Record<string, unknown>;
+  return {
+    name: present(md.customer_name),
+    email: present(md.customer_email),
+    phone: present(md.customer_phone),
+  };
+}
+
+/**
+ * Who to actually contact about one case.
+ *
+ * The customer record is an identity - it is what an opt-out, a repeat-failure
+ * count and a WhatsApp thread all hang off, and it is found by matching either
+ * email or phone. Its own email and phone columns are gap-filled: whichever
+ * arrived first stays, because those columns carry unique indexes and
+ * overwriting one can collide with another customer's row. That is a sound
+ * rule for an identity key and a bad one for a delivery address.
+ *
+ * So the two drifted apart. A second order from the same phone under a
+ * different email is filed under the same customer, and that customer's email
+ * column still holds the first address - while the board, which reads the
+ * event's own details first, displays the second. The panel named one
+ * recipient and the mail went to the other, which is not a cosmetic
+ * disagreement: it is someone else's payment reminder, with their amount and
+ * their pay link, arriving in the wrong inbox.
+ *
+ * The case wins, because the case is the thing being answered. Identity still
+ * comes from the record - opted_out and id are kept exactly as they are, so
+ * this can never route around an opt-out - and a case that carries no details
+ * of its own falls back to the record, which is the old behaviour.
+ *
+ * Deliberately the same precedence the board renders with
+ * (coalesce(metadata->>'customer_email', c.email) in event_board), so what a
+ * merchant reads on the row is by construction where the message goes.
+ */
+export function contactFor(
+  contacts: ContactDetails,
+  customer: Customer | null,
+): Customer | null {
+  if (!customer) return null;
+  const name = present(contacts.name);
+  const email = present(contacts.email);
+  const phone = present(contacts.phone);
+  if (!name && !email && !phone) return customer;
+  return {
+    ...customer,
+    name: name ?? customer.name,
+    email: email ?? customer.email,
+    phone: phone ?? customer.phone,
+  };
+}
 
 /** Money is always paise internally. Format only at the edges. */
 export function formatINR(paise: number | null | undefined): string {

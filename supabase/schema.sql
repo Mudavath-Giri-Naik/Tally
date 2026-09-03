@@ -1208,7 +1208,13 @@ create or replace function event_timeline(
   -- What the provider said back. Carries the provider's id on a success and
   -- its error text on a failure - and the failure is the case that matters:
   -- "Failed" with the reason withheld is not something a merchant can act on.
-  response    text
+  response    text,
+  -- Who it actually went to, as recorded when it was sent. The panel used to
+  -- label every sent message with the case's current address, which answers a
+  -- different question and - once a case and its customer record disagreed
+  -- about the address - answered it wrongly, naming a recipient that had
+  -- never received the thing.
+  sent_to     text
 )
 language sql stable
 as $fn$
@@ -1229,7 +1235,8 @@ as $fn$
          end,
          a.decision->>'admin_action',
          a.decision->>'source',
-         a.response
+         a.response,
+         a.decision->>'sent_to'
   from actions a
   join merchants m on m.id = a.merchant_id
   where a.merchant_id = p_merchant_id

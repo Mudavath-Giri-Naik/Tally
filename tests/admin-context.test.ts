@@ -18,6 +18,7 @@ function entry(over: Partial<TimelineEntry>): TimelineEntry {
     admin_action: null,
     source: null,
     response: null,
+    sent_to: null,
     ...over,
   };
 }

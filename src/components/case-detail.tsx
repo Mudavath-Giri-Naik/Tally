@@ -976,13 +976,21 @@ function AdminActionCard({ entry }: { entry: TimelineEntry }) {
 
 function AttemptGroupCard({ group, row }: { group: AttemptGroup; row: BoardRow }) {
   if (group.kind === "email") {
-    return <EmailAttemptCard entry={group.entry} to={row.customer_email} />;
+    // The recorded recipient first, the case's current address only as a
+    // fallback for rows written before it was recorded. Re-deriving it is how
+    // the panel came to name an address the mail had never gone to.
+    return <EmailAttemptCard entry={group.entry} to={group.entry.sent_to ?? row.customer_email} />;
   }
   if (group.kind === "voice") {
-    return <VoiceAttemptCard entry={group.entry} to={row.customer_phone} />;
+    return <VoiceAttemptCard entry={group.entry} to={group.entry.sent_to ?? row.customer_phone} />;
   }
   if (group.kind === "whatsapp") {
-    return <WhatsAppAttemptCard entries={group.entries} to={row.customer_phone} />;
+    return (
+      <WhatsAppAttemptCard
+        entries={group.entries}
+        to={group.entries.find((e) => e.sent_to)?.sent_to ?? row.customer_phone}
+      />
+    );
   }
   if (group.kind === "admin") return <AdminActionCard entry={group.entry} />;
   return <ResolutionCard entry={group.entry} />;

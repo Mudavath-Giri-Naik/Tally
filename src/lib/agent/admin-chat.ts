@@ -448,6 +448,9 @@ async function sendNow(
       rationale: "Sent immediately at an admin's instruction from the case panel.",
       source: "admin",
       guardrail: "admin_direct_send",
+      // The address the admin was looking at when they asked for this, kept
+      // with the row so the panel reports it rather than recomputing it.
+      sent_to: to,
     },
   });
 

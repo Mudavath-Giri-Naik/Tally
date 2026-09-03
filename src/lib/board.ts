@@ -501,6 +501,12 @@ export interface TimelineEntry {
   source: string | null;
   /** The provider's reply - its id on a success, its error text on a failure. */
   response: string | null;
+  /**
+   * The address or number this went to, as recorded at the time. Null on rows
+   * written before it was recorded, and on anything that was never sent - the
+   * panel falls back to the case's current details for those.
+   */
+  sent_to: string | null;
 }
 
 export async function eventTimeline(
@@ -528,6 +534,7 @@ export async function eventTimeline(
     admin_action: (r.admin_action as string) ?? null,
     source: (r.source as string) ?? null,
     response: (r.response as string) ?? null,
+    sent_to: (r.sent_to as string) ?? null,
   }));
 }
 
