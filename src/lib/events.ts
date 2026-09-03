@@ -445,6 +445,8 @@ export async function updateEvent(
       // Admin overrides: pause/resume and snooze.
       | "paused"
       | "hold_until"
+      // Reopening takes a case out of the control arm - see reopen_case.
+      | "holdout"
     >
   >,
 ): Promise<RecoveryEvent> {
@@ -623,14 +625,36 @@ export async function applyAdminOverride(input: AdminOverrideInput): Promise<Boa
       break;
 
     case "reopen_case":
+      /**
+       * Reopening also takes the case out of the control arm.
+       *
+       * Without this, reopening a held-back case did nothing a merchant could
+       * see: the status went back to queued, the next worker tick hit the same
+       * preflight check, and it stopped again with the same reason. A button
+       * that silently undoes itself is worse than any measurement it protects.
+       *
+       * It does cost something - that case leaves the experiment and the
+       * control arm shrinks by one. That is the right trade. The holdout
+       * exists to tell a merchant what the agent is worth, and a merchant who
+       * has just asked for this case to be chased has decided, for this case,
+       * that they would rather have the money than the data point. Recorded on
+       * the action either way, so the arm shrinking is never silent.
+       */
       await updateEvent(eventId, {
         status: "queued",
         stop_reason: null,
         next_attempt_at: null,
         paused: false,
         hold_until: null,
+        holdout: false,
       });
-      rationale = ["Reopened by the merchant.", note].filter(Boolean).join(" ");
+      rationale = [
+        "Reopened by the merchant.",
+        event.holdout
+          ? "Taken out of the held-back control group so it can be chased."
+          : "",
+        note,
+      ].filter(Boolean).join(" ");
       break;
   }
 
