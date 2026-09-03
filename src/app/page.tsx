@@ -21,6 +21,7 @@ import { listMerchants } from "@/lib/merchants";
 import { merchantStats } from "@/lib/insights";
 import { formatINR } from "@/lib/types";
 import { HowItWorksDiagram } from "@/components/marketing/how-it-works-diagram";
+import { FeaturesBento } from "@/components/marketing/features-bento";
 
 // Real merchant data, queried live - not something to prerender once and go
 // stale.
@@ -281,24 +282,8 @@ export default async function HomePage() {
             </h2>
           </div>
 
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURE_CARDS.map((c, i) => (
-              <div
-                key={c.t}
-                className="animate-fade-up marketing-motion group relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
-                style={{ animationDelay: `${i * 90}ms` }}
-              >
-                <span
-                  className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${c.bar}`}
-                  aria-hidden="true"
-                />
-                <span className={`flex size-11 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110 ${c.chip}`}>
-                  <c.icon className="size-5" />
-                </span>
-                <h3 className="mt-4 font-semibold text-neutral-900">{c.t}</h3>
-                <p className="mt-2 text-sm text-neutral-600">{c.d}</p>
-              </div>
-            ))}
+          <div className="mt-12">
+            <FeaturesBento cards={FEATURE_CARDS} />
           </div>
         </div>
       </section>
