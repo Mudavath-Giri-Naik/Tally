@@ -107,6 +107,19 @@ export function CaseBoard({
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
+  /**
+   * Which case the panel is fetching for, checked before any response is
+   * allowed to land.
+   *
+   * The four-second poll for the case you just closed can still be in flight
+   * when the next one opens, and it resolves into the same single piece of
+   * state. Without this it wins the race often enough to matter, and the
+   * panel then shows one customer's conversation under another customer's
+   * name - the same wrongness as the cross-case history, arrived at from the
+   * other end. A ref rather than state: the loaders need the current value at
+   * the moment their fetch returns, not the one captured when they were made.
+   */
+  const shownEvent = useRef<string | null>(null);
   const [overrideTarget, setOverrideTarget] =
     useState<{ row: BoardRow; action: AdminActionDef } | null>(null);
   // Chat is kept per case rather than globally: the conversation is about
@@ -243,6 +256,7 @@ export function CaseBoard({
         const res = await fetch(`/api/dashboard/${slug}/timeline/${eventId}`);
         if (!res.ok) return;
         const json = (await res.json()) as { entries: TimelineEntry[] };
+        if (shownEvent.current !== eventId) return;
         setTimeline(json.entries);
       } catch {
         // A failed poll keeps whatever is on screen; the next one will do.
@@ -253,14 +267,17 @@ export function CaseBoard({
 
   const loadTimeline = useCallback(
     async (eventId: string) => {
+      shownEvent.current = eventId;
       setTimeline(null);
       setTimelineError(null);
       try {
         const res = await fetch(`/api/dashboard/${slug}/timeline/${eventId}`);
         if (!res.ok) throw new Error(String(res.status));
         const json = (await res.json()) as { entries: TimelineEntry[] };
+        if (shownEvent.current !== eventId) return;
         setTimeline(json.entries);
       } catch {
+        if (shownEvent.current !== eventId) return;
         setTimelineError("That timeline could not be loaded. Try again.");
       }
     },
@@ -308,7 +325,7 @@ export function CaseBoard({
 
   const toggleRow = useCallback(
     async (eventId: string) => {
-      if (openEvent === eventId) { setOpenEvent(null); return; }
+      if (openEvent === eventId) { shownEvent.current = null; setOpenEvent(null); return; }
       setOpenEvent(eventId);
       await loadTimeline(eventId);
     },

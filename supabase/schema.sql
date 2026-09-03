@@ -1235,16 +1235,27 @@ as $fn$
   where a.merchant_id = p_merchant_id
     and (
       a.event_id = p_event_id
-      -- The conversation belongs to the customer, not to one case.
+      -- The conversation belongs to the customer, not to one case - but only
+      -- the part of it that this case was alive for.
       --
       -- A WhatsApp thread is one thread: the customer answers the person,
       -- not the invoice. An inbound reply is filed against whichever of
       -- their cases was most recent, so a merchant looking at any of the
       -- others saw our messages with their replies missing - which reads as
-      -- the customer ignoring us. Their side of it now appears on every case
-      -- of theirs, because that is where it is true.
+      -- the customer ignoring us. Their side of it belongs on every case of
+      -- theirs that was open when they said it.
+      --
+      -- Hence the clock. Without it a case opened today inherited the whole
+      -- back catalogue of that customer's earlier cases - a brand-new failure
+      -- opened onto a conversation about a different invoice for a different
+      -- amount, which reads as the agent having already chased something it
+      -- has not yet said a word about. A message that predates the case was
+      -- not part of it; only what arrives after it opens can be.
       or (
         (a.message like '[inbound] %' or a.message like '[reply] %')
+        and a.created_at >= (
+          select e0.created_at from events e0 where e0.id = p_event_id
+        )
         and a.event_id in (
           select e2.id from events e2
           where e2.customer_id = (
