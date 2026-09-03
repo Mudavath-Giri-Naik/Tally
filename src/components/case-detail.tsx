@@ -420,10 +420,6 @@ function ChatBox({
           <SendIcon className="size-4" />
         </Button>
       </div>
-      <p className="text-muted-foreground mt-1.5 text-[0.7rem]">
-        It can send, call, snooze, or change this business&rsquo;s settings - and
-        will say so when it does.
-      </p>
     </div>
   );
 }
@@ -1268,33 +1264,52 @@ export function DetailPanel({
     // the case, and everything inside it scrolls. Sizing to content made the
     // whole column jump every time a different row was opened.
     <Card className="gap-0 py-0 h-[calc(100vh-3rem)] overflow-hidden">
-      <div className="flex items-center gap-2.5 border-b p-3 sm:px-4">
-        <Avatar className="size-8 shrink-0">
-          <AvatarFallback className="text-xs font-bold">{initials(row.customer_name)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1 flex items-baseline gap-2">
-          <span className="truncate font-semibold">{row.customer_name ?? "Unknown customer"}</span>
-          <span className="text-muted-foreground ml-auto shrink-0 text-sm font-semibold tabular-nums">
+      {/*
+        One header, three lines, each answering a different question.
+
+        Who and how much. What kind of case it is. How far along it is.
+
+        They were two lines before - the badges wedged in beside the avatar
+        with the counters on the same row - which left roughly three hundred
+        pixels for four badges and three figures, so it wrapped into an
+        uneven block that read as leftovers rather than a header. Only the
+        first line is indented past the avatar now; the other two get the
+        panel's full width, which is all they needed.
+      */}
+      <div className="flex flex-col gap-2 border-b p-3 sm:px-4">
+        <div className="flex items-center gap-2.5">
+          <Avatar className="size-8 shrink-0">
+            <AvatarFallback className="text-xs font-bold">
+              {initials(row.customer_name)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0 flex-1 truncate font-semibold">
+            {row.customer_name ?? "Unknown customer"}
+          </span>
+          <span className="shrink-0 text-sm font-semibold tabular-nums">
             {formatINR(row.amount)}
           </span>
         </div>
-      </div>
 
-      {/* Badges and the running totals share one row. They were a header row
-          and a footer strip before, which spent two bands of height on what
-          reads perfectly well as one line. */}
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b px-3 py-2 sm:px-4">
-        <WorkflowBadge workflow={row.workflow} className="h-[18px] px-1.5 text-[0.7rem]" />
-        <Badge variant="secondary" className="h-[18px] px-1.5 text-[0.7rem]">{row.reason_label}</Badge>
-        <StatusBadge status={row.status} className="h-[18px] px-1.5 text-[0.7rem]" />
-        <ChannelMark channel={row.last_channel} size={16} />
-        <span className="text-muted-foreground ml-auto flex items-center gap-1.5 text-[0.7rem] tabular-nums">
+        {/* Status first: it is the one a merchant scans for. The channel mark
+            closes the line rather than sitting mid-row, so the badges read as
+            one run of text and the icon as punctuation on the end. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge status={row.status} className="h-[18px] px-1.5 text-[0.7rem]" />
+          <WorkflowBadge workflow={row.workflow} className="h-[18px] px-1.5 text-[0.7rem]" />
+          <Badge variant="secondary" className="h-[18px] px-1.5 text-[0.7rem]">
+            {row.reason_label}
+          </Badge>
+          <ChannelMark channel={row.last_channel} size={16} />
+        </div>
+
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[0.7rem] tabular-nums">
           <span title={row.status === "recovered" ? "Time to recovery" : "Open for"}>
-            {formatDuration(elapsed)}
+            {row.status === "recovered" ? "Recovered in" : "Open"} {formatDuration(elapsed)}
           </span>
           <span aria-hidden="true">·</span>
           <span title="Attempts used">
-            {row.attempts}/{row.max_attempts}
+            {row.attempts} of {row.max_attempts} attempts
           </span>
           <span aria-hidden="true">·</span>
           {sent.length === 0 ? (
@@ -1311,10 +1326,10 @@ export function DetailPanel({
               className="font-semibold text-amber-600 dark:text-amber-400"
               title="Messages sent outside the contact window"
             >
-              {outOfWindow}/{sent.length} outside
+              {outOfWindow}/{sent.length} outside window
             </span>
           )}
-        </span>
+        </div>
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">

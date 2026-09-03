@@ -45,6 +45,25 @@ export const BOARD_STATUSES: BoardStatus[] = [
   "written_off",
 ];
 
+/**
+ * The statuses that get their own chip above the table.
+ *
+ * A deliberate subset of BOARD_STATUSES, not all of it. The full list is
+ * eight wide and four of them are rare enough to sit at zero indefinitely -
+ * a row of chips reading "Disputed 0 · Written off 0 · Opted out 0" is a
+ * filter bar mostly advertising things that have never happened, and it
+ * pushed the ones a merchant checks daily off to the side.
+ *
+ * The rare four are still filterable from the status dropdown, and the cases
+ * themselves are untouched. This is about what earns permanent space.
+ */
+export const BOARD_TABS: BoardStatus[] = [
+  "recovered",
+  "chasing",
+  "needs_human",
+  "stopped",
+];
+
 export const STATUS_META: Record<
   BoardStatus,
   { label: string; token: string; icon: string }

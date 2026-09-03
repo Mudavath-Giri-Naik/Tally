@@ -16,15 +16,14 @@ import {
   CalendarClockIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  FilterIcon,
   PauseIcon,
   SearchIcon,
-  SlidersHorizontalIcon,
 } from "lucide-react";
 
 import { formatINR } from "@/lib/types";
 import {
   BOARD_STATUSES,
+  BOARD_TABS,
   STATUS_META,
   type Dashboard,
   type BoardRow,
@@ -40,7 +39,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -101,9 +99,6 @@ export function CaseBoard({
   const [channelFilter, setChannelFilter] = useState("all");
   const [reasonFilter, setReasonFilter] = useState("all");
   const [page, setPage] = useState(1);
-  // Row checkboxes: purely a selection UI for now, scoped to this component -
-  // there is no bulk-action bar yet to spend it on.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
@@ -219,24 +214,6 @@ export function CaseBoard({
   const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const from = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
   const to = Math.min(safePage * PAGE_SIZE, filtered.length);
-
-  const allVisibleSelected = visible.length > 0 && visible.every((r) => selected.has(r.event_id));
-  const toggleAllVisible = useCallback(() => {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (allVisibleSelected) visible.forEach((r) => next.delete(r.event_id));
-      else visible.forEach((r) => next.add(r.event_id));
-      return next;
-    });
-  }, [allVisibleSelected, visible]);
-  const toggleOne = useCallback((eventId: string) => {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(eventId)) next.delete(eventId);
-      else next.add(eventId);
-      return next;
-    });
-  }, []);
 
   const openRow = useMemo(
     () => data.rows.find((r) => r.event_id === openEvent) ?? null,
@@ -487,7 +464,7 @@ export function CaseBoard({
                 All cases
                 <span className="ml-0.5 tabular-nums opacity-80">{counts.all}</span>
               </TabsTrigger>
-              {BOARD_STATUSES.map((s) => (
+              {BOARD_TABS.map((s) => (
                 <TabsTrigger
                   key={s}
                   value={s}
@@ -557,34 +534,6 @@ export function CaseBoard({
               ))}
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            className="rounded-full text-muted-foreground font-normal"
-            title="More filters coming soon"
-          >
-            More filters
-          </Button>
-          <Button
-            variant="outline" size="icon" className="rounded-full"
-            onClick={() => {
-              setQuery("");
-              setChannelFilter("all");
-              setReasonFilter("all");
-              setStatusFilter("all");
-              setTab("all");
-            }}
-            aria-label="Clear all filters"
-            title="Clear all filters"
-          >
-            <FilterIcon className="size-4" />
-          </Button>
-          <Button
-            variant="outline" size="icon" className="rounded-full"
-            aria-label="Display options"
-            title="Display options"
-          >
-            <SlidersHorizontalIcon className="size-4" />
-          </Button>
         </div>
 
         {visible.length === 0 ? (
@@ -599,13 +548,6 @@ export function CaseBoard({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allVisibleSelected}
-                      onCheckedChange={toggleAllVisible}
-                      aria-label="Select all cases on this page"
-                    />
-                  </TableHead>
                   <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Customer</TableHead>
                   <TableHead className="text-right text-xs font-semibold tracking-wide text-muted-foreground uppercase">Amount</TableHead>
                   <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Reason</TableHead>
@@ -635,13 +577,6 @@ export function CaseBoard({
                       openEvent === row.event_id && "bg-muted/60",
                     )}
                   >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selected.has(row.event_id)}
-                        onCheckedChange={() => toggleOne(row.event_id)}
-                        aria-label={`Select ${row.customer_name ?? "this case"}`}
-                      />
-                    </TableCell>
                     <TableCell>
                       {/* Under the name rather than as two more columns: the
                           table is already nine wide, and these are read as
