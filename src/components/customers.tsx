@@ -133,8 +133,10 @@ function TileHead({
       >
         <Icon className="size-3.5" />
       </span>
-      <span className="text-muted-foreground text-xs font-medium">{label}</span>
-      <span className="ml-auto">
+      <span className="text-muted-foreground min-w-0 truncate text-[0.7rem] font-medium">
+        {label}
+      </span>
+      <span className="ml-auto shrink-0">
         <DeltaIndicator
           value={deltaValue ?? null}
           riseIsGood={riseIsGood}
@@ -175,9 +177,9 @@ function RangeTrack({
           style={{ left: `${Math.min(100, Math.max(0, pct))}%` }}
         />
       </div>
-      <div className="text-muted-foreground flex justify-between text-[0.65rem] tabular-nums">
-        <span>{formatDuration(fastest)} fastest</span>
-        <span>{formatDuration(slowest)} slowest</span>
+      <div className="text-muted-foreground flex justify-between text-[0.6rem] tabular-nums">
+        <span title="Fastest recovery in this period">{formatDuration(fastest)}</span>
+        <span title="Slowest recovery in this period">{formatDuration(slowest)}</span>
       </div>
     </div>
   );
@@ -206,7 +208,7 @@ function StatTile({
   const t = TONES[tone];
   return (
     <Card size="sm" className="gap-0">
-      <CardContent className="flex flex-col gap-2.5">
+      <CardContent className="flex flex-col gap-2 px-3">
         <TileHead
           label={label}
           icon={Icon}
@@ -216,14 +218,14 @@ function StatTile({
           suffix={suffix}
         />
 
-        <div className="flex items-baseline gap-1.5">
-          <span className={cn("text-3xl font-bold tracking-tight tabular-nums", t.value)}>
+        <div className="flex items-baseline gap-1">
+          <span className={cn("text-2xl font-bold tracking-tight tabular-nums", t.value)}>
             {value}
           </span>
-          {unit && <span className="text-muted-foreground text-sm font-medium">{unit}</span>}
+          {unit && <span className="text-muted-foreground text-xs font-medium">{unit}</span>}
         </div>
 
-        <p className="text-muted-foreground text-xs leading-relaxed">{detail}</p>
+        <p className="text-muted-foreground text-[0.7rem] leading-snug">{detail}</p>
 
         {fill !== undefined && (
           <div
@@ -266,12 +268,12 @@ function MomentumTile({
   const noPrior = previous.length === 0;
   return (
     <Card size="sm" className="gap-0">
-      <CardContent className="flex flex-col gap-2.5">
-        <TileHead label="Failure cause momentum" icon={TrendingUpIcon} tone="slate" />
+      <CardContent className="flex flex-col gap-2 px-3">
+        <TileHead label="Top causes" icon={TrendingUpIcon} tone="slate" />
 
         {causes.length === 0 ? (
-          <p className="text-muted-foreground py-2 text-xs">
-            No open failures in this window.
+          <p className="text-muted-foreground py-2 text-[0.7rem]">
+            No open failures here.
           </p>
         ) : (
           <ul className="flex flex-col">
@@ -292,10 +294,10 @@ function MomentumTile({
               return (
                 <li
                   key={c.reason}
-                  className="flex items-center justify-between gap-3 border-b py-1.5 text-xs last:border-b-0"
+                  className="flex items-center justify-between gap-2 border-b py-1 text-[0.7rem] last:border-b-0"
                 >
-                  <span className="truncate">{c.label}</span>
-                  <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+                  <span className="min-w-0 truncate" title={c.label}>{c.label}</span>
+                  <span className="flex shrink-0 items-center gap-1 tabular-nums">
                     <span className="font-semibold">{c.count}</span>
                     {!noPrior && dir === "up" && (
                       <TrendingUpIcon
@@ -329,8 +331,8 @@ function MomentumTile({
         )}
 
         {noPrior && causes.length > 0 && (
-          <p className="text-muted-foreground text-[0.65rem]">
-            No earlier period to compare against yet
+          <p className="text-muted-foreground text-[0.6rem] leading-snug">
+            No earlier period to compare
           </p>
         )}
       </CardContent>
@@ -398,7 +400,7 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
           Three tiles, not five. Each one is a headline number plus the figures
           that make it mean something, so the row can be read left to right
           rather than cross-referenced. */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatTile
           label="Recovery"
           icon={TrendingUpIcon}
@@ -409,7 +411,7 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
               <span className="text-foreground font-semibold">
                 {formatINR(data.metrics.amount_recovered)}
               </span>{" "}
-              recovered · {formatINR(data.metrics.amount_at_risk)} still at risk
+              back · {formatINR(data.metrics.amount_at_risk)} at risk
             </>
           }
           // The bar is the headline number, not a second calculation.
@@ -431,11 +433,10 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
             needsAttention > 0 ? (
               <>
                 of {data.metrics.total_events} active ·{" "}
-                <span className="text-foreground font-semibold">{chasing}</span> in
-                auto-chase
+                <span className="text-foreground font-semibold">{chasing}</span> chasing
               </>
             ) : (
-              <>Nothing waiting on a person · {chasing} in auto-chase</>
+              <>Nobody waiting · {chasing} chasing</>
             )
           }
         />
@@ -449,7 +450,7 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
           detail={
             data.metrics.sent_total > 0 ? (
               <>
-                sent on its own ·{" "}
+                unprompted ·{" "}
                 <span
                   className={cn(
                     "font-semibold",
@@ -460,22 +461,22 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
                 >
                   {data.metrics.sent_in_window}/{data.metrics.sent_total}
                 </span>{" "}
-                inside your contact window
+                in window
               </>
             ) : (
-              <>Nothing sent in this window</>
+              <>Nothing sent yet</>
             )
           }
           deltaValue={delta(data.metrics.sent_total, data.previous.sent_total)}
         />
 
         <StatTile
-          label="Avg recovery time"
+          label="Avg recovery"
           icon={ClockIcon}
           tone="sky"
           value={avg === null ? "—" : formatDuration(avg)}
           detail={
-            avg === null ? "Nothing has recovered yet" : "from failure to payment"
+            avg === null ? "Nothing recovered yet" : "failure to payment"
           }
           // Slower is worse, so a rise is bad news here.
           deltaValue={
@@ -492,12 +493,12 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
         />
 
         <StatTile
-          label="Guardrail interventions"
+          label="Guardrails"
           icon={ShieldCheckIcon}
           tone="indigo"
           value={String(data.metrics.guardrail_actions)}
           unit={data.metrics.guardrail_actions === 1 ? "action" : "actions"}
-          detail="decided by a rule, not the model"
+          detail="rule overrode the model"
           deltaValue={delta(
             data.metrics.guardrail_actions,
             data.previous.guardrail_actions,
