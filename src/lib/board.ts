@@ -154,6 +154,8 @@ export interface BoardMetrics {
   recovery_slowest_seconds: number | null;
   /** Actions a rule produced rather than the model - overrides of every kind. */
   guardrail_actions: number;
+  /** Every action in the window, so the line above has a denominator. */
+  total_actions: number;
   sent_total: number;
   sent_in_window: number;
   needs_human: number;
@@ -306,6 +308,7 @@ export async function boardMetrics(
     recovery_fastest_seconds: seconds(raw.recovery_fastest_seconds),
     recovery_slowest_seconds: seconds(raw.recovery_slowest_seconds),
     guardrail_actions: n("guardrail_actions"),
+    total_actions: n("total_actions"),
     sent_total: n("sent_total"),
     sent_in_window: n("sent_in_window"),
     needs_human: n("needs_human"),

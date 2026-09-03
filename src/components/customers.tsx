@@ -227,23 +227,32 @@ function StatTile({
 
         <p className="text-muted-foreground text-[0.7rem] leading-snug">{detail}</p>
 
-        {fill !== undefined && (
-          <div
-            className={cn("h-1.5 w-full overflow-hidden rounded-full", t.track)}
-            role="img"
-            aria-label={`${Math.round(fill)} percent`}
-          >
-            <div
-              className={cn("h-full rounded-full transition-[width] duration-500", t.bar)}
-              // Clamped: a proportion over 100 would overflow its track, and
-              // one under 0 would vanish - both are possible when the two
-              // figures come from different windows.
-              style={{ width: `${Math.min(100, Math.max(0, fill))}%` }}
-            />
+        {/* Anchored to the card's bottom edge with mt-auto rather than
+            following straight after the text. Detail ran to one line on some
+            tiles and two on others, so the indicator used to land at whatever
+            height the text happened to leave it at - every tile now fills
+            evenly, with the leftover space collected above the bar instead of
+            showing up as air underneath it. */}
+        {(fill !== undefined || footer) && (
+          <div className="mt-auto flex flex-col gap-1.5 pt-1.5">
+            {fill !== undefined && (
+              <div
+                className={cn("h-1.5 w-full overflow-hidden rounded-full", t.track)}
+                role="img"
+                aria-label={`${Math.round(fill)} percent`}
+              >
+                <div
+                  className={cn("h-full rounded-full transition-[width] duration-500", t.bar)}
+                  // Clamped: a proportion over 100 would overflow its track,
+                  // and one under 0 would vanish - both are possible when the
+                  // two figures come from different windows.
+                  style={{ width: `${Math.min(100, Math.max(0, fill))}%` }}
+                />
+              </div>
+            )}
+            {footer}
           </div>
         )}
-
-        {footer}
       </CardContent>
     </Card>
   );
@@ -439,6 +448,15 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
               <>Nobody waiting · {chasing} chasing</>
             )
           }
+          // Share of the active pipeline sitting with a person rather than
+          // the agent - a raw count of four means something different out of
+          // six than it does out of sixty, and this is the number that says
+          // which one you are looking at.
+          fill={
+            data.metrics.total_events > 0
+              ? (needsAttention / data.metrics.total_events) * 100
+              : 0
+          }
         />
 
         <StatTile
@@ -468,6 +486,14 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
             )
           }
           deltaValue={delta(data.metrics.sent_total, data.previous.sent_total)}
+          // The compliance fraction already named in the sentence above,
+          // drawn as well as said - what a merchant is actually answerable
+          // for is the share inside the window, not the raw count sent.
+          fill={
+            data.metrics.sent_total > 0
+              ? (data.metrics.sent_in_window / data.metrics.sent_total) * 100
+              : 0
+          }
         />
 
         <StatTile
@@ -498,12 +524,26 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
           tone="indigo"
           value={String(data.metrics.guardrail_actions)}
           unit={data.metrics.guardrail_actions === 1 ? "action" : "actions"}
-          detail="rule overrode the model"
+          detail={
+            data.metrics.total_actions > 0 ? (
+              <>of {data.metrics.total_actions} decisions · rule overrode the model</>
+            ) : (
+              <>rule overrode the model</>
+            )
+          }
           deltaValue={delta(
             data.metrics.guardrail_actions,
             data.previous.guardrail_actions,
           )}
           riseIsGood={false}
+          // Share of every decision this window where a rule, not the model,
+          // had the final word - the figure that actually backs up "the agent
+          // proposes, the guardrails dispose" instead of just asserting it.
+          fill={
+            data.metrics.total_actions > 0
+              ? (data.metrics.guardrail_actions / data.metrics.total_actions) * 100
+              : 0
+          }
         />
 
         <MomentumTile

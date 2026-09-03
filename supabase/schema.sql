@@ -1076,10 +1076,13 @@ as $fn$
   -- kind: a hard stop before the model ran, a channel swapped for one that
   -- was actually available, a message deferred to the contact window.
   guardrails as (
-    select count(*) as n
+    select count(*) filter (where a.decision->>'source' = 'guardrail') as n,
+           -- The denominator. "21 interventions" says nothing without it:
+           -- 21 out of 25 decisions is a system the rules effectively run,
+           -- 21 out of 900 is a system where they almost never need to.
+           count(*) as total
     from actions a
     where a.merchant_id = p_merchant_id
-      and a.decision->>'source' = 'guardrail'
       and a.created_at >= p_since
       and (p_until is null or a.created_at < p_until)
   ),
@@ -1121,6 +1124,7 @@ as $fn$
       (select round(max(extract(epoch from (recovered_at - failed_on))))
          from board where status = 'recovered' and recovered_at is not null),
     'guardrail_actions', (select n from guardrails),
+    'total_actions',     (select total from guardrails),
     'sent_total',        (select count(*) from sent),
     'sent_in_window',
       (select count(*) from sent
