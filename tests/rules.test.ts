@@ -82,6 +82,7 @@ function customer(over: Partial<Customer> = {}): Customer {
     email: "asha@example.com",
     phone: "+919876543210",
     opted_out: false,
+    opted_out_at: null,
     created_at: "2026-01-01T00:00:00Z",
     ...over,
   };

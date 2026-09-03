@@ -100,6 +100,8 @@ export interface Customer {
   email: string | null;
   phone: string | null;
   opted_out: boolean;
+  /** When they opted out. Null if they never did, or if it predates this. */
+  opted_out_at: string | null;
   created_at: string;
 }
 

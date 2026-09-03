@@ -137,6 +137,12 @@ create table if not exists customers (
 
 -- Identity is per-merchant: the same human at two merchants is two rows, and
 -- neither merchant can infer the other's customer list.
+-- [+] When they asked to be left alone. "Was this customer contacted after
+-- opting out?" is the compliance question that matters, and a boolean cannot
+-- answer it: every message ever sent to someone who later opted out looks
+-- like a violation without an instant to order against.
+alter table customers add column if not exists opted_out_at timestamptz;
+
 create unique index if not exists customers_merchant_email_key
   on customers (merchant_id, lower(email)) where email is not null;
 create unique index if not exists customers_merchant_phone_key

@@ -20,6 +20,7 @@ const record: Customer = {
   email: "first@example.com",
   phone: "+919000000001",
   opted_out: false,
+  opted_out_at: null,
   created_at: "2026-09-01T00:00:00.000Z",
 };
 

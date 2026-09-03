@@ -270,13 +270,21 @@ async function verify(merchants: Merchant[], since: Date) {
     `${capped.rows[0].count} over cap`,
   );
 
-  // 2. Opt-out is absolute.
+  // 2. Opt-out is absolute - from the moment it is given.
+  //
+  // Ordered against opted_out_at rather than the boolean alone. Someone who
+  // was messaged, read it, and replied STOP was contacted entirely properly;
+  // counting that as a violation flags the system working exactly as intended
+  // and, worse, trains whoever reads this list to ignore a red line.
   const optedOut = await pg.query<{ count: string }>(
     `select count(*)::text as count
        from actions a
        join events e on e.id = a.event_id
        join customers c on c.id = e.customer_id
-      where c.opted_out and a.outcome in ('sent','delivered')`,
+      where c.opted_out
+        and a.outcome in ('sent','delivered')
+        and c.opted_out_at is not null
+        and coalesce(a.sent_at, a.created_at) > c.opted_out_at`,
   );
   pass(
     "no opted-out customer was contacted",
@@ -285,9 +293,20 @@ async function verify(merchants: Merchant[], since: Date) {
   );
 
   // 3. Dead-end causes were never retried.
+  //
+  // "schedule_retry" carries two meanings and only one of them is a bug.
+  // Retrying a card that cannot work is the thing this check exists to catch.
+  // Holding a message until the contact window opens is also written as a
+  // schedule, and is the contact-window guardrail doing its job - on a card
+  // that will never work, the deferred message is a request for a different
+  // payment method, not another attempt at the dead one.
+  //
+  // Wall-clock runs never separated the two because they never landed outside
+  // a contact window. Running the clock forward did, immediately.
   const badRetries = await pg.query<{ count: string }>(
     `select count(*)::text as count from actions
       where decision->>'intervention' = 'schedule_retry'
+        and coalesce(decision->>'guardrail','') <> 'outside_contact_window'
         and decision->>'root_cause' in
             ('card_expired','card_blocked','mandate_revoked',
              'international_declined','risk_declined','mandate_limit_exceeded')`,
@@ -312,10 +331,16 @@ async function verify(merchants: Merchant[], since: Date) {
   );
 
   // 5. Audit completeness.
+  // Scoped to this run. A batch verifies what it just did; an event left in
+  // some state by hand days ago is a question about that afternoon, and
+  // dragging it in here means the list never goes green and so stops being
+  // read at all.
   const unaudited = await pg.query<{ count: string }>(
     `select count(*)::text as count from events e
       where e.status <> 'queued'
+        and e.created_at >= $1
         and not exists (select 1 from actions a where a.event_id = e.id)`,
+    [since],
   );
   pass(
     "every processed event has an audit trail",

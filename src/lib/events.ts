@@ -312,9 +312,10 @@ export async function findCustomersByPhone(
  * asked to be left alone.
  */
 export async function optOutCustomer(customerId: string): Promise<number> {
+  const at = new Date().toISOString();
   const { error } = await db()
     .from("customers")
-    .update({ opted_out: true })
+    .update({ opted_out: true, opted_out_at: at })
     .eq("id", customerId);
   if (error) throw new Error(`Could not opt out customer: ${error.message}`);
 
@@ -324,15 +325,57 @@ export async function optOutCustomer(customerId: string): Promise<number> {
       status: "stopped",
       stop_reason: "customer_opted_out",
       next_attempt_at: null,
-      updated_at: new Date().toISOString(),
+      updated_at: at,
     })
     .eq("customer_id", customerId)
     .in("status", ["queued", "processing"])
-    .select("id");
+    .select("id, merchant_id, reason");
   if (stopErr) {
     throw new Error(`Could not stop events after opt-out: ${stopErr.message}`);
   }
-  return (data ?? []).length;
+
+  const stopped = (data ?? []) as Array<{
+    id: string; merchant_id: string; reason: RootCause | null;
+  }>;
+
+  /**
+   * Say so on every case this closed.
+   *
+   * One "STOP" ends every open case that customer has, and until now the
+   * other cases were stopped in silence - status changed, nothing written,
+   * so the panel showed a case that had halted with no account of why. A
+   * case that stops without a row saying what stopped it is the one place
+   * this system is allowed no gaps, because "why did you stop chasing my
+   * money" is a question a merchant is entitled to an answer to.
+   */
+  await Promise.all(
+    stopped.map((e) =>
+      recordAction({
+        eventId: e.id,
+        merchantId: e.merchant_id,
+        channel: null,
+        message: null,
+        outcome: "skipped",
+        decision: {
+          root_cause: e.reason ?? "unknown",
+          intervention: "stop",
+          channel: null,
+          rationale:
+            "The customer asked not to be contacted. Every open case of " +
+            "theirs stops, not only the one they replied to.",
+          source: "customer",
+          guardrail: "customer_opted_out",
+        },
+      }).catch((err) => {
+        // The opt-out itself has already taken effect and must not be undone
+        // by a failure to describe it. Losing the note is bad; leaving them
+        // contactable because the note failed would be far worse.
+        console.error("[opt-out] could not record the stop", { event: e.id, err });
+      }),
+    ),
+  );
+
+  return stopped.length;
 }
 
 /** The most recent event for a customer, whatever its status. */
