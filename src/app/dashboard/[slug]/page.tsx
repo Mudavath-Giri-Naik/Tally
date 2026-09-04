@@ -8,6 +8,7 @@
 import { notFound } from "next/navigation";
 import { resolveMerchant } from "@/lib/merchants";
 import { loadDashboard, rangeDays } from "@/lib/board";
+import { merchantLift, merchantSpend, merchantCauses } from "@/lib/evidence";
 import { Overview } from "@/components/overview";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +27,14 @@ export default async function OverviewPage({
 
   const raw = Array.isArray(sp.range) ? sp.range[0] : sp.range;
   const days = rangeDays(raw);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
-  return (
-    <Overview
-      slug={merchant.slug}
-      initial={await loadDashboard(merchant.id, days)}
-    />
-  );
+  const [initial, lift, spend, causes] = await Promise.all([
+    loadDashboard(merchant.id, days),
+    merchantLift(merchant.id, since),
+    merchantSpend(merchant.id, since),
+    merchantCauses(merchant.id, since),
+  ]);
+
+  return <Overview slug={merchant.slug} initial={initial} lift={lift} spend={spend} causes={causes} />;
 }

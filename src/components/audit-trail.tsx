@@ -11,11 +11,19 @@
  * rows it grows to, where the board is bounded by the date-range picker.
  */
 import { useEffect, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ScrollTextIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CircleCheckIcon,
+  ScrollTextIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 
 import type { ActionType, AuditRow } from "@/lib/audit";
 import { ACTION_TYPES } from "@/lib/audit";
-import { Card } from "@/components/ui/card";
+import type { Invariant, SendHour } from "@/lib/evidence";
+import { cn } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,6 +62,151 @@ const OUTCOME_LABEL: Record<string, string> = {
   pending: "Pending",
 };
 
+/* ── did it behave ───────────────────────────────────────────────────────── */
+
+function InvariantRow({ inv }: { inv: Invariant }) {
+  return (
+    <div className="flex items-start gap-3 py-3">
+      {inv.held ? (
+        <CircleCheckIcon
+          className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+          aria-hidden="true"
+        />
+      ) : (
+        <TriangleAlertIcon
+          className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400"
+          aria-hidden="true"
+        />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="text-sm">{inv.claim}</span>
+        {!inv.held && (
+          <span className="mt-0.5 text-xs text-red-600 dark:text-red-400">
+            {inv.breaches} {inv.breach}
+          </span>
+        )}
+      </div>
+      <span className="sr-only">{inv.held ? "held" : "breached"}</span>
+    </div>
+  );
+}
+
+/**
+ * Every rule, checked against the rows themselves - moved here from the old
+ * standalone Evidence page, since this is exactly the aggregate the row-level
+ * guardrail reasons below add up to.
+ */
+function RulesCard({ invariants }: { invariants: Invariant[] }) {
+  const broken = invariants.filter((i) => !i.held).length;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Every rule, checked against your data</CardTitle>
+          <Badge
+            variant="outline"
+            className={cn(
+              broken === 0
+                ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
+                : "border-red-500 text-red-600 dark:text-red-400",
+            )}
+          >
+            {broken === 0 ? "All held" : `${broken} broken`}
+          </Badge>
+        </div>
+        <p className="text-muted-foreground text-sm">
+          Run against the rows themselves, not against anything the agent
+          recorded about its own behaviour - an agent reporting a clean week is
+          exactly what a bug in it would also produce.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y">
+          {invariants.map((i) => (
+            <InvariantRow key={i.id} inv={i} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * When messages actually went out, against the window you promised.
+ *
+ * Drawn to one scale across all twenty-four hours, including the empty ones -
+ * the silent hours are the entire point.
+ */
+function WindowCard({
+  hours, window, timezone, breaches,
+}: {
+  hours: SendHour[];
+  window: { start: string; end: string };
+  timezone: string;
+  breaches: number;
+}) {
+  const peak = Math.max(1, ...hours.map((h) => h.sends));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>When messages actually went out</CardTitle>
+        <p className="text-muted-foreground text-sm">
+          Local hours in {timezone}. The shaded band is your contact window,{" "}
+          {window.start.slice(0, 5)}–{window.end.slice(0, 5)}.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="overflow-x-auto">
+          <div className="flex min-w-[34rem] items-end gap-[3px]" role="img"
+               aria-label={`Messages sent by hour of day in ${timezone}`}>
+            {hours.map((h) => (
+              <div key={h.hour} className="flex flex-1 flex-col items-center gap-1">
+                <span className="text-muted-foreground text-[0.6rem] tabular-nums">
+                  {h.sends > 0 ? h.sends : ""}
+                </span>
+                <div
+                  className={cn(
+                    "w-full rounded-sm",
+                    h.sends === 0
+                      ? "bg-muted"
+                      : h.inWindow
+                        ? "bg-emerald-500"
+                        : "bg-red-500",
+                  )}
+                  style={{ height: `${Math.max(2, (h.sends / peak) * 72)}px` }}
+                />
+                <span
+                  className={cn(
+                    "text-[0.6rem] tabular-nums",
+                    h.inWindow ? "text-foreground font-medium" : "text-muted-foreground",
+                  )}
+                >
+                  {String(h.hour).padStart(2, "0")}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-sm">
+          {breaches === 0 ? (
+            <span className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <CircleCheckIcon className="size-4 shrink-0" aria-hidden="true" />
+              Every message landed inside the window.
+            </span>
+          ) : (
+            <span className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <TriangleAlertIcon className="size-4 shrink-0" aria-hidden="true" />
+              {breaches} message{breaches === 1 ? "" : "s"} landed outside it.
+            </span>
+          )}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CompliancePill({ inWindow }: { inWindow: boolean | null }) {
   if (inWindow === null) {
     return <span className="text-muted-foreground text-xs">—</span>;
@@ -75,9 +228,17 @@ function CompliancePill({ inWindow }: { inWindow: boolean | null }) {
 export function AuditTrail({
   slug,
   customers,
+  invariants,
+  hours,
+  window,
+  timezone,
 }: {
   slug: string;
   customers: Array<{ id: string; name: string | null }>;
+  invariants: Invariant[];
+  hours: SendHour[];
+  window: { start: string; end: string };
+  timezone: string;
 }) {
   const [customerId, setCustomerId] = useState("all");
   const [type, setType] = useState("all");
@@ -134,6 +295,19 @@ export function AuditTrail({
           Every action Tally has recorded for this business, including the
           decisions where it deliberately did nothing - most recent first.
         </p>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold tracking-tight">Did it behave?</h2>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <RulesCard invariants={invariants} />
+          <WindowCard
+            hours={hours}
+            window={window}
+            timezone={timezone}
+            breaches={invariants.find((i) => i.id === "contact_window")?.breaches ?? 0}
+          />
+        </div>
       </div>
 
       <Card className="gap-0 py-0">

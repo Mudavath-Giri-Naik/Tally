@@ -56,11 +56,11 @@ flowchart LR
   VOICE --> CUST
   CUST -- "reply / STOP / promise" --> IB["inbound.ts"]
   IB --> DB
-  DB --> DASH["Dashboard<br/>live via SSE"]
-  DB --> EVID["Evidence<br/>lift · spend · 9 checks"]
+  DB --> DASH["Overview<br/>live via SSE · lift · spend"]
+  DB --> AUD["Audit Trail<br/>9 checks · every guardrail reason"]
 ```
 
-*The agent proposes; the guardrails dispose. No prompt can talk Tally into messaging an opted-out customer, retrying a card that cannot work, calling at 3am, or phoning someone over a ninety-rupee failure — those are decisions in code, and the Evidence page re-runs the checks against Postgres itself rather than trusting the worker's own report of its evening.*
+*The agent proposes; the guardrails dispose. No prompt can talk Tally into messaging an opted-out customer, retrying a card that cannot work, calling at 3am, or phoning someone over a ninety-rupee failure — those are decisions in code, and the Audit Trail page re-runs the checks against Postgres itself rather than trusting the worker's own report of its evening.*
 
 ---
 
@@ -133,7 +133,7 @@ Set a holdout percentage per merchant, and that share of their customers is **ne
 (hashtext(customer_id::text)::bigint & 2147483647) % 100 < holdout_percent
 ```
 
-Hashed on the **customer**, not the event — a person chased for one failure and left alone for the next would contaminate both arms. The case is still watched for payment, so "held back" is measured against, not simply dropped. The dashboard's Evidence page compares the two arms directly:
+Hashed on the **customer**, not the event — a person chased for one failure and left alone for the next would contaminate both arms. The case is still watched for payment, so "held back" is measured against, not simply dropped. The dashboard's Overview page compares the two arms directly:
 
 > Contacted: 34% recovered · Control: 11% recovered · **+23 points, and it says so only once the control arm has at least 30 cases** — below that, it states plainly that there is nothing to compare yet, rather than quoting a lift computed from four events.
 
@@ -173,7 +173,7 @@ Nothing sent outside the contact window
 </td></tr>
 </table>
 
-Nine of the same checks are also live on the dashboard's **Evidence** tab, scoped to real merchant data instead of a seeded batch — so "did it behave" is answerable from a running business, not only from a test script. The other three only make sense against a batch: firing the same webhook 25 times, and checking a tenant boundary from the customer's side as well as the merchant's, are things to verify once in CI, not run against live traffic on every page load.
+Nine of the same checks are also live on the dashboard's **Audit Trail** tab, scoped to real merchant data instead of a seeded batch — so "did it behave" is answerable from a running business, not only from a test script. The other three only make sense against a batch: firing the same webhook 25 times, and checking a tenant boundary from the customer's side as well as the merchant's, are things to verify once in CI, not run against live traffic on every page load.
 
 ---
 
@@ -183,10 +183,12 @@ Nine of the same checks are also live on the dashboard's **Evidence** tab, scope
 
 | Section | Answers |
 |---|---|
-| **Overview** | Is the agent earning its keep? Money, trend, causes, workflow toggles. |
+| **Overview** | Is the agent earning its keep? Money, trend, causes, the held-back control group vs. what got contacted, and what the chasing cost. |
+| **Inbox** | Every case waiting on a person, ranked by what's at stake — the triage view, not the full table. |
 | **Customers** | Every case — status, channel, attempts — searchable, filterable, actionable, with recovery, automation, and guardrail-share tiles up top. |
 | **Case detail** | The whole conversation, channel-native: email thread, WhatsApp bubbles, call summary, admin actions — headed by a numbered **Live progress** strip that tracks the case from `FAILED` to `RECOVERED` in real time. |
-| **Evidence** | Contacted vs. held-back, spend vs. return, and 9 of the guardrail invariants, checked live against this merchant's own rows. |
+| **Workflows** | The four recovery categories, toggled on or off, next to what each has actually recovered. |
+| **Audit Trail** | Every action ever recorded, including deliberate inaction, filterable by customer and outcome — plus the 9 guardrail invariants checked live against this merchant's own rows. |
 | **Settings** | Contact window, channels, attempt cap, holdout percentage, pause switch, webhook URL. |
 
 ---
@@ -255,7 +257,7 @@ npm run dev
 
 | Command | Covers |
 |---|---|
-| `npm test` | 381 unit tests — crypto, classification, guardrails, agent wiring, channels, cost model, the holdout arm, the live-progress derivation, the Evidence page's own refusals |
+| `npm test` | 409 unit tests — crypto, classification, guardrails, agent wiring, channels, cost model, the holdout arm, the live-progress derivation, the lift and invariant refusals |
 | `npm run stack:up` && `npm run test:db` | Integration tests against real Postgres + PostgREST |
 | `npm run batch -- --dry-run --advance-hours=12` | A full batch run, with the clock stepped forward so the entire retry ladder plays out in seconds, checked against 12 invariants queried straight from Postgres |
 | `npm run clean:batch -- --dry-run` | Lists (and, without the flag, deletes) everything a batch run seeded, so a demo dashboard doesn't stay buried under synthetic data |
@@ -290,7 +292,7 @@ src/lib/
 src/components/
   marketing/               the public site's animated architecture diagram, bento features
   case-journey.tsx         the dashboard's live progress strip
-  evidence.tsx             the Evidence tab
+  audit-trail.tsx          the Audit Trail tab - the actions log, plus the 9 guardrail checks
 src/app/
   (marketing)/             landing, docs, onboarding
   dashboard/[slug]/        the merchant dashboard, its own sidebar
@@ -311,7 +313,7 @@ scripts/
 | Voice is scripted text-to-speech | Not a back-and-forth conversation. |
 | Contact window assumes a stable UTC offset | Exact for `Asia/Kolkata`; can drift an hour on a DST transition night elsewhere. |
 | Cross-worker coordination is time-bounded | A six-hour recent-contact check, not a per-customer lock. |
-| A holdout under ~30 cases isn't a result | The machinery computes a real lift at any size; the Evidence page says so rather than letting a four-event sample be read as a percentage that means something. |
+| A holdout under ~30 cases isn't a result | The machinery computes a real lift at any size; the Overview page says so rather than letting a four-event sample be read as a percentage that means something. |
 
 ---
 

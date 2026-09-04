@@ -90,7 +90,7 @@ const NODES: Node[] = [
   { id: "n-agent", x: 800, y: 130, icon: SparklesIcon, label: "Agent decides", tone: "violet", size: "sm" },
   { id: "n-audit", x: 520, y: 310, icon: ScrollTextIcon, label: "Audit trail", tone: "slate", size: "sm" },
   { id: "n-live", x: 660, y: 310, icon: RadioIcon, label: "Live dashboard", tone: "sky", size: "sm" },
-  { id: "n-evidence", x: 800, y: 310, icon: BarChart3Icon, label: "Evidence", tone: "emerald", size: "sm" },
+  { id: "n-workflows", x: 800, y: 310, icon: BarChart3Icon, label: "Workflows", tone: "emerald", size: "sm" },
 
   // Column D - the channel it actually goes out on.
   { id: "n-email", x: 1000, y: 110, icon: MailIcon, label: "Email", tone: "sky", size: "sm" },

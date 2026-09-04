@@ -14,7 +14,6 @@ import {
   ListChecksIcon,
   ScrollTextIcon,
   SettingsIcon,
-  ShieldCheckIcon,
   UsersIcon,
 } from "lucide-react";
 
@@ -29,7 +28,7 @@ import {
 export interface NavItem {
   href: string;
   label: string;
-  icon: "overview" | "inbox" | "customers" | "workflows" | "audit" | "evidence" | "settings";
+  icon: "overview" | "inbox" | "customers" | "workflows" | "audit" | "settings";
 }
 
 const ICONS = {
@@ -38,7 +37,6 @@ const ICONS = {
   customers: UsersIcon,
   workflows: ListChecksIcon,
   audit: ScrollTextIcon,
-  evidence: ShieldCheckIcon,
   settings: SettingsIcon,
 };
 

@@ -86,7 +86,6 @@ export default async function DashboardLayout({
     { href: `${base}/customers`, label: "Customers", icon: "customers" },
     { href: `${base}/workflows`, label: "Workflows", icon: "workflows" },
     { href: `${base}/audit`, label: "Audit Trail", icon: "audit" },
-    { href: `${base}/evidence`, label: "Evidence", icon: "evidence" },
     { href: `${base}/settings`, label: "Settings", icon: "settings" },
   ];
 
