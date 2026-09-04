@@ -99,26 +99,25 @@ export default async function DashboardLayout({
       <div className="flex h-full w-full min-w-0">
         <Sidebar collapsible="icon">
           <SidebarHeader>
-            <Link
-              href="/"
-              className="flex items-center gap-2.5 px-2 py-1.5 group-data-[collapsible=icon]:px-0"
-            >
-              <span className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
-                <ShieldCheckIcon className="size-4" />
-              </span>
-              <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-                <span className="text-muted-foreground text-[0.65rem] font-semibold tracking-widest uppercase">
-                  AI revenue
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+              <Link href="/" className="flex min-w-0 items-center gap-2.5">
+                <span className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
+                  <ShieldCheckIcon className="size-4" />
                 </span>
-                <span className="text-base font-bold tracking-tight">Tally</span>
-              </span>
-            </Link>
+                <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
+                  <span className="text-muted-foreground text-[0.65rem] font-semibold tracking-widest uppercase">
+                    AI revenue
+                  </span>
+                  <span className="text-base font-bold tracking-tight">Tally</span>
+                </span>
+              </Link>
+              <div className="group-data-[collapsible=icon]:hidden">
+                <ModeToggle />
+              </div>
+            </div>
           </SidebarHeader>
 
           <SidebarContent>
-            <div className="px-2 pt-1 pb-2">
-              <MerchantSwitcher current={currentMerchantOption} merchants={merchantOptions} />
-            </div>
             <DashboardNav items={items} />
           </SidebarContent>
 
@@ -173,7 +172,7 @@ export default async function DashboardLayout({
                 <span className="text-muted-foreground text-xs">Merchant</span>
               </div>
               <div className="group-data-[collapsible=icon]:hidden">
-                <ModeToggle />
+                <MerchantSwitcher current={currentMerchantOption} merchants={merchantOptions} />
               </div>
             </div>
           </SidebarFooter>
