@@ -17,26 +17,6 @@
   <strong>A failed Razorpay payment isn't one problem. Tally works out which one it is, recovers it on its own, and can prove afterwards that it worked.</strong>
 </div>
 
-<br/>
-
-<div align="center">
-
-[What it does](#what-it-does) ·
-[Architecture](#architecture) ·
-[Journey](#merchant--customer-journey) ·
-[Decision engine](#the-decision-engine) ·
-[Measuring what it's worth](#measuring-what-its-worth) ·
-[Dashboard](#dashboard) ·
-[Tech stack](#tech-stack) ·
-[Configuration](#configuration) ·
-[Model backend](#the-model-backend) ·
-[Quick start](#quick-start) ·
-[Testing](#testing) ·
-[Layout](#layout) ·
-[Limitations](#known-limitations)
-
-</div>
-
 ---
 
 ## What it does
