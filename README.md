@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/banner.png" alt="Tally — AI revenue recovery for Razorpay merchants" width="100%" />
+  <img src="public/readme/banner.svg" alt="Tally — AI revenue recovery for Razorpay merchants" width="100%" />
 
   <br/><br/>
 
