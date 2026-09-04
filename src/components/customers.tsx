@@ -397,7 +397,14 @@ function MomentumTile({
   );
 }
 
-export function Customers({ slug, initial }: { slug: string; initial: Dashboard }) {
+export function Customers({
+  slug, initial, openEvent,
+}: {
+  slug: string;
+  initial: Dashboard;
+  /** A case to open on arrival - the Inbox tab deep-links here with one. */
+  openEvent?: string | null;
+}) {
   const router = useRouter();
   const { data, setData, live } = useDashboardStream(slug, initial);
 
@@ -660,7 +667,7 @@ export function Customers({ slug, initial }: { slug: string; initial: Dashboard 
         </p>
       )}
 
-      <CaseBoard slug={slug} data={data} setData={setData} />
+      <CaseBoard slug={slug} data={data} setData={setData} initialOpenEvent={openEvent} />
     </div>
   );
 }

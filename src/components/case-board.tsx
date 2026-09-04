@@ -87,11 +87,14 @@ const TAB_ACTIVE_CLASS: Record<string, string> = {
 };
 
 export function CaseBoard({
-  slug, data, setData,
+  slug, data, setData, initialOpenEvent,
 }: {
   slug: string;
   data: Dashboard;
   setData: Dispatch<SetStateAction<Dashboard>>;
+  /** A case to open on arrival - the Inbox tab links here rather than
+   *  duplicating the timeline and chat machinery to show one case itself. */
+  initialOpenEvent?: string | null;
 }) {
   const [tab, setTab] = useState<BoardStatus | "all">("all");
   const [query, setQuery] = useState("");
@@ -99,7 +102,7 @@ export function CaseBoard({
   const [channelFilter, setChannelFilter] = useState("all");
   const [reasonFilter, setReasonFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [openEvent, setOpenEvent] = useState<string | null>(null);
+  const [openEvent, setOpenEvent] = useState<string | null>(initialOpenEvent ?? null);
   const [timeline, setTimeline] = useState<TimelineEntry[] | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
   /**
@@ -260,6 +263,16 @@ export function CaseBoard({
     },
     [slug],
   );
+
+  // Arrived with a case to open already - the state above shows the panel
+  // immediately, but only this actually fetches its story. Once, on arrival:
+  // a merchant navigating between cases from here on uses toggleRow like
+  // anyone else, and re-firing this on every prop change would refetch a
+  // timeline the polling below is already keeping current.
+  useEffect(() => {
+    if (initialOpenEvent) void loadTimeline(initialOpenEvent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Keep the open case's trail current.

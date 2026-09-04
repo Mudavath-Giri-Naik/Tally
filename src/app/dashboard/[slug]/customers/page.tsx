@@ -27,11 +27,13 @@ export default async function CustomersPage({
 
   const raw = Array.isArray(sp.range) ? sp.range[0] : sp.range;
   const days = rangeDays(raw);
+  const openRaw = Array.isArray(sp.open) ? sp.open[0] : sp.open;
 
   return (
     <Customers
       slug={merchant.slug}
       initial={await loadDashboard(merchant.id, days)}
+      openEvent={openRaw ?? null}
     />
   );
 }
