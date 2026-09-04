@@ -9,7 +9,13 @@
  */
 import { db } from "./supabase";
 import { profileFor } from "./classify";
-import { workflowFor, DEFAULT_WORKFLOWS, normaliseWorkflows, type WorkflowId } from "./workflows";
+import {
+  workflowFor,
+  DEFAULT_WORKFLOWS,
+  normaliseWorkflows,
+  WORKFLOW_IDS,
+  type WorkflowId,
+} from "./workflows";
 import type { RootCause, Channel, EventType } from "./types";
 
 export type BoardStatus =
@@ -97,6 +103,13 @@ export interface BoardRow {
   customer_email: string | null;
   customer_phone: string | null;
   amount: number | null;
+  /**
+   * What actually came back, when it differs from `amount` - a partial
+   * settlement, say. Null for anything not yet recovered, and null on a row
+   * the provider never gave a figure for, in which case `amount` is the right
+   * one to use.
+   */
+  recovered_amount: number | null;
   reason: RootCause;
   reason_label: string;
   /**
@@ -222,6 +235,10 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     customer_email: (r.customer_email as string) ?? null,
     customer_phone: (r.customer_phone as string) ?? null,
     amount: r.amount === null ? null : Number(r.amount),
+    recovered_amount:
+      r.recovered_amount === null || r.recovered_amount === undefined
+        ? null
+        : Number(r.recovered_amount),
     reason,
     reason_label: profileFor(reason).label,
     reason_remedy: profileFor(reason).remedy,
@@ -392,6 +409,52 @@ export async function enabledWorkflows(merchantId: string): Promise<WorkflowId[]
   // A row written before the column existed reads back empty; all four is
   // what that merchant was effectively running.
   return stored.length > 0 ? stored : DEFAULT_WORKFLOWS;
+}
+
+export interface WorkflowStat {
+  workflow: WorkflowId;
+  /** Distinct customers this workflow has ever chased in the window. */
+  customers: number;
+  amount_recovered: number;
+  /**
+   * Recovered as a share of everything in this workflow that has reached a
+   * conclusion. Written off is excluded from both sides, same as the
+   * dashboard's own headline rate - it is a business decision to stop
+   * chasing, not a failed recovery attempt.
+   */
+  recovery_rate: number;
+}
+
+/**
+ * One row per workflow: what it has actually recovered, for how many
+ * customers, and at what rate - the same board rows the table renders,
+ * grouped by the category a merchant switches on or off.
+ *
+ * Pure and synchronous: the caller already has `BoardRow[]` from
+ * `loadDashboard`, and every row already carries its own `workflow` (derived
+ * once, in `mapBoardRow`) - so this is a fold, not another round trip.
+ */
+export function workflowStats(rows: BoardRow[]): WorkflowStat[] {
+  return WORKFLOW_IDS.map((workflow) => {
+    const inWorkflow = rows.filter((r) => r.workflow === workflow);
+    const customers = new Set(
+      inWorkflow.map((r) => r.customer_id).filter((id): id is string => id !== null),
+    ).size;
+    const amount_recovered = inWorkflow
+      .filter((r) => r.status === "recovered")
+      .reduce((sum, r) => sum + (r.recovered_amount ?? r.amount ?? 0), 0);
+
+    const concluded = inWorkflow.filter((r) => r.status !== "written_off");
+    const recovery_rate =
+      concluded.length === 0
+        ? 0
+        : Math.round(
+            (100 * concluded.filter((r) => r.status === "recovered").length) /
+              concluded.length,
+          );
+
+    return { workflow, customers, amount_recovered, recovery_rate };
+  });
 }
 
 export async function todayStats(merchantId: string): Promise<TodayStats> {

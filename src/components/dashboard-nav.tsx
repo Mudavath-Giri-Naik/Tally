@@ -8,7 +8,15 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { InboxIcon, LayoutGridIcon, SettingsIcon, ShieldCheckIcon, UsersIcon } from "lucide-react";
+import {
+  InboxIcon,
+  LayoutGridIcon,
+  ListChecksIcon,
+  ScrollTextIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+  UsersIcon,
+} from "lucide-react";
 
 import {
   SidebarGroup,
@@ -21,13 +29,15 @@ import {
 export interface NavItem {
   href: string;
   label: string;
-  icon: "overview" | "inbox" | "customers" | "evidence" | "settings";
+  icon: "overview" | "inbox" | "customers" | "workflows" | "audit" | "evidence" | "settings";
 }
 
 const ICONS = {
   overview: LayoutGridIcon,
   inbox: InboxIcon,
   customers: UsersIcon,
+  workflows: ListChecksIcon,
+  audit: ScrollTextIcon,
   evidence: ShieldCheckIcon,
   settings: SettingsIcon,
 };

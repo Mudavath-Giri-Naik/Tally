@@ -15,6 +15,7 @@ function row(over: Partial<BoardRow> = {}): BoardRow {
     customer_email: "asha@example.com",
     customer_phone: "+919876543210",
     amount: 100000,
+    recovered_amount: null,
     reason: "gateway_timeout",
     reason_label: "Gateway timeout",
     reason_remedy: "Retry soon.",

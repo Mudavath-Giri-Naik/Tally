@@ -11,7 +11,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { Channel } from "@/lib/types";
-import { WORKFLOW_IDS, WORKFLOWS, type WorkflowId } from "@/lib/workflows";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
 
 const CHANNELS: Array<{ id: Channel; label: string; note: string }> = [
   { id: "email", label: "Email", note: "Cheapest, and always available." },
@@ -68,7 +66,6 @@ export interface SettingsValues {
   /** Null means the platform default rather than a choice. */
   ai_provider: string | null;
   ai_model: string | null;
-  workflows_enabled: WorkflowId[];
   active: boolean;
 }
 
@@ -179,53 +176,6 @@ export function SettingsForm({
           >
             {form.active ? "Pause agent" : "Resume agent"}
           </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Workflows</CardTitle>
-          <p className="text-muted-foreground text-sm">
-            The kinds of recovery Tally runs for you. Everything is still
-            detected and classified whatever you switch off — a workflow that is
-            off means Tally will not contact anyone about it, not that it stops
-            watching. Changes apply to new cases; anything already mid-flow
-            carries on.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {WORKFLOW_IDS.map((id) => {
-            const w = WORKFLOWS[id];
-            const on = form.workflows_enabled.includes(id);
-            return (
-              <div key={id} className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <Label htmlFor={`wf-${id}`} className="font-semibold">
-                    {w.label}
-                  </Label>
-                  <p className="text-muted-foreground mt-0.5 text-sm">{w.summary}</p>
-                  <p className="text-muted-foreground/80 mt-0.5 text-xs">{w.covers}</p>
-                </div>
-                <Switch
-                  id={`wf-${id}`}
-                  checked={on}
-                  onCheckedChange={() =>
-                    set(
-                      "workflows_enabled",
-                      on
-                        ? form.workflows_enabled.filter((x) => x !== id)
-                        : WORKFLOW_IDS.filter(
-                            (x) => x === id || form.workflows_enabled.includes(x),
-                          ),
-                    )
-                  }
-                />
-              </div>
-            );
-          })}
-          {errorField === "workflows_enabled" && (
-            <p className="text-destructive text-sm">{error}</p>
-          )}
         </CardContent>
       </Card>
 

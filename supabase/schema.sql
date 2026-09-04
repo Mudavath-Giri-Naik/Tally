@@ -914,6 +914,11 @@ create or replace function merchant_board(
   customer_email text,
   customer_phone text,
   amount         bigint,
+  -- [+] Workflows tab: per-workflow "amount recovered" has to use what was
+  -- actually confirmed back, not the amount that failed - the two differ on a
+  -- partial settlement, and summing `amount` for every recovered row would
+  -- overstate a workflow that has had one.
+  recovered_amount bigint,
   reason         text,
   status         text,
   attempts       int,
@@ -994,6 +999,7 @@ as $fn$
          coalesce(e.metadata->>'customer_email', c.email),
          coalesce(e.metadata->>'customer_phone', c.phone),
          e.amount,
+         e.recovered_amount,
          coalesce(e.reason, 'unknown'),
          case
            when e.status = 'recovered' then 'recovered'

@@ -67,7 +67,6 @@ import {
   ADMIN_ACTION_ICON,
   ChannelMark,
   StatusBadge,
-  STATUS_CLASS,
   WorkflowBadge,
   initials,
   relativeTime,
@@ -487,10 +486,6 @@ function EmailAttemptCard({ entry, to }: { entry: TimelineEntry; to: string | nu
       </div>
       <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-xs tabular-nums">
         {shortTime(entry.created_at)}
-        <GuardrailBadge guardrail={entry.guardrail} />
-        {entry.in_window === false && (
-          <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>outside window</Badge>
-        )}
       </div>
       {entry.rationale && <p className="text-muted-foreground mt-2 text-sm">{entry.rationale}</p>}
       {entry.message && (
@@ -518,7 +513,6 @@ function VoiceAttemptCard({ entry, to }: { entry: TimelineEntry; to: string | nu
       </div>
       <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-xs tabular-nums">
         {shortTime(entry.created_at)}
-        <GuardrailBadge guardrail={entry.guardrail} />
       </div>
       {entry.rationale && <p className="text-muted-foreground mt-2 text-sm">{entry.rationale}</p>}
       {entry.message && (
@@ -582,7 +576,6 @@ function WhatsAppBubble({ entry }: { entry: TimelineEntry }) {
 /** A whole exchange - every consecutive WhatsApp message grouped under one step. */
 function WhatsAppAttemptCard({ entries, to }: { entries: TimelineEntry[]; to: string | null }) {
   const first = entries[0];
-  const anyOutOfWindow = entries.some((e) => e.in_window === false);
   // A reply is the most important thing that can happen on a case - someone
   // who was being chased answered - and it was rendered as just another
   // bubble in the stack, indistinguishable at a glance from what we sent.
@@ -605,9 +598,6 @@ function WhatsAppAttemptCard({ entries, to }: { entries: TimelineEntry[]; to: st
             <MessageCircleIcon className="size-3" />
             {replies === 1 ? "Customer replied" : `Customer replied ${replies}x`}
           </Badge>
-        )}
-        {anyOutOfWindow && (
-          <Badge variant="outline" className={cn("text-xs", STATUS_CLASS.chasing)}>outside window</Badge>
         )}
         <StepTime iso={first.created_at} />
       </div>
