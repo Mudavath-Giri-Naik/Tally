@@ -11,10 +11,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ShieldCheckIcon } from "lucide-react";
 
-import { resolveMerchant } from "@/lib/merchants";
+import { resolveMerchant, listMerchants, toPublic } from "@/lib/merchants";
+import { PUBLIC_URL } from "@/lib/env";
 import { todayStats } from "@/lib/board";
 import { Providers } from "@/components/providers";
 import { DashboardNav, type NavItem } from "@/components/dashboard-nav";
+import { MerchantSwitcher } from "@/components/merchant-switcher";
 import { ModeToggle } from "@/components/mode-toggle";
 import {
   Sidebar,
@@ -59,6 +61,25 @@ export default async function DashboardLayout({
   const base = `/dashboard/${merchant.slug}`;
   const today = await todayStats(merchant.id).catch(() => null);
 
+  const publicUrl = PUBLIC_URL();
+  const allMerchants = await listMerchants().catch(() => []);
+  const merchantOptions = allMerchants.map((m) => {
+    const pub = toPublic(m, publicUrl);
+    return {
+      id: pub.id,
+      slug: pub.slug,
+      business_name: pub.business_name,
+      live: pub.razorpay_key_id_masked.startsWith("rzp_live"),
+    };
+  });
+  const currentMerchantOption =
+    merchantOptions.find((m) => m.id === merchant.id) ?? {
+      id: merchant.id,
+      slug: merchant.slug,
+      business_name: merchant.business_name,
+      live: false,
+    };
+
   const items: NavItem[] = [
     { href: base, label: "Overview", icon: "overview" },
     { href: `${base}/inbox`, label: "Inbox", icon: "inbox" },
@@ -95,6 +116,9 @@ export default async function DashboardLayout({
           </SidebarHeader>
 
           <SidebarContent>
+            <div className="px-2 pt-1 pb-2">
+              <MerchantSwitcher current={currentMerchantOption} merchants={merchantOptions} />
+            </div>
             <DashboardNav items={items} />
           </SidebarContent>
 
