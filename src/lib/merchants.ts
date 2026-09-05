@@ -86,6 +86,19 @@ function validate(input: OnboardingInput): void {
       "That does not look like a Razorpay Key ID - it should start with rzp_test_ or rzp_live_.",
     );
   }
+  // A live key silently accepted here is a live key one paste-mistake away
+  // from a real charge against a real bank account - and unlike every other
+  // credential mistake, this class fails only by working. Blocked outright
+  // rather than warned about, until this product actually onboards a
+  // merchant who means to go live.
+  if (input.razorpay_key_id.trim().startsWith("rzp_live_")) {
+    throw new ValidationError(
+      "razorpay_key_id",
+      "Live Razorpay keys are not accepted here. Use a Test Mode key (starts with " +
+        "rzp_test_) from Razorpay Dashboard -> Account & Settings -> API Keys, with " +
+        "the Test/Live switch set to Test.",
+    );
+  }
   if (!input.razorpay_key_secret?.trim()) {
     throw new ValidationError(
       "razorpay_key_secret",
