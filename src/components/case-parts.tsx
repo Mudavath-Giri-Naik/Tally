@@ -420,6 +420,7 @@ export const STOP_REASON_LABEL: Record<string, string> = {
   admin_disputed: "Flagged as disputed",
   admin_written_off: "Written off",
   merchant_missing: "Business record missing",
+  covered_by_linked_payment: "Settled by a payment on a linked case",
 };
 
 export function stopReasonLabel(reason: string | null): string | null {

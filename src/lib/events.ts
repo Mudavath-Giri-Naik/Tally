@@ -553,14 +553,46 @@ export async function applyAdminOverride(input: AdminOverrideInput): Promise<Boa
   const note = reasonText?.trim() || null;
 
   switch (action) {
-    case "mark_paid":
+    case "mark_paid": {
       await updateEvent(eventId, {
         status: "recovered",
         recovered_amount: event.amount,
         next_attempt_at: null,
       });
       rationale = ["Marked as paid manually.", note].filter(Boolean).join(" ");
+
+      // One real payment can be the answer to more than one open case for the
+      // same person - a checkout abandoned and then retried-and-declined are
+      // two rows for one attempt to pay. Left open, each gets marked paid on
+      // its own later and the recovered total counts the same rupee twice.
+      const siblings = await otherOpenEventsForCustomer(merchantId, event.customer_id, eventId);
+      for (const sibling of siblings) {
+        await updateEvent(sibling.id, {
+          status: "stopped",
+          stop_reason: "covered_by_linked_payment",
+          next_attempt_at: null,
+        });
+        await recordAction({
+          eventId: sibling.id,
+          merchantId,
+          channel: null,
+          message: null,
+          outcome: "no_action",
+          decision: {
+            root_cause: sibling.reason ?? "unknown",
+            intervention: "stop",
+            channel: null,
+            rationale:
+              `Closed without being counted as a second recovery - case ${eventId.slice(0, 8)} ` +
+              "for the same customer was just marked paid, and one payment should not " +
+              "inflate the recovered total by settling two open cases.",
+            source: "admin",
+            guardrail: "covered_by_linked_payment",
+          },
+        });
+      }
       break;
+    }
 
     case "pause_outreach":
       await updateEvent(eventId, { paused: true });
