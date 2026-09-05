@@ -18,10 +18,10 @@
  */
 import { type AgentCommand } from "./providers";
 import { providerFor } from "./rotating";
-import { updateMerchantSettings, razorpayCredentials } from "../merchants";
-import { createRetryLink, adminLinkReference } from "../razorpay";
+import { updateMerchantSettings } from "../merchants";
 import { applyAdminOverride, AdminActionError, recordAction, getEvent } from "../events";
 import { liveTransport } from "./worker";
+import { paymentLinkForEvent } from "./pay-link";
 import { stripInventedLinks, dropUnbackedLinkPromise } from "./links";
 import { sendEmail, sendWhatsApp, placeVoiceCall } from "../channels";
 import type { SendResult } from "../channels";
@@ -339,40 +339,18 @@ async function paymentLinkFor(
   row: BoardRow,
   customer: Customer | null,
 ): Promise<{ url: string | null; error: string | null }> {
-  if (!row.amount || row.amount <= 0) {
-    return { url: null, error: "This case has no amount, so there is nothing to collect." };
-  }
-  try {
-    const event = await getEvent(merchant.id, row.event_id);
-    if (!event) return { url: null, error: "I could not find this case to bill against." };
+  const event = await getEvent(merchant.id, row.event_id);
+  if (!event) return { url: null, error: "I could not find this case to bill against." };
 
-    // createRetryLink directly, not through the worker's transport: that one
-    // catches the failure, logs it to a console nobody here can read, and
-    // returns null, because for an unattended send a missing link is a
-    // degraded message rather than a failed one. An admin who asked for the
-    // link needs the actual reason - without it the agent was left guessing
-    // at causes, which it did, confidently and wrongly.
-    const creds = razorpayCredentials(merchant);
-    const url = await createRetryLink({
-      keyId: creds.keyId,
-      keySecret: creds.keySecret,
-      amount: row.amount,
-      currency: "INR",
-      customerName: customer?.name ?? null,
-      customerEmail: customer?.email ?? null,
-      customerPhone: customer?.phone ?? null,
-      description: `Payment to ${merchant.business_name}`,
-      // Unique per request, so asking twice is two links rather than a
-      // duplicate Razorpay refuses.
-      referenceId: adminLinkReference(row.event_id),
-    });
-    return { url, error: null };
-  } catch (err) {
-    return {
-      url: null,
-      error: explainFailure(err instanceof Error ? err.message : String(err)),
-    };
-  }
+  // The same link every other caller reuses - see pay-link.ts. An admin
+  // asking for "the link" and the worker's own last attempt now mean the
+  // exact same URL, not two different ones Razorpay happens to both accept.
+  const { url, error } = await paymentLinkForEvent(merchant, event, {
+    name: customer?.name ?? null,
+    email: customer?.email ?? null,
+    phone: customer?.phone ?? null,
+  });
+  return { url, error: error ? explainFailure(error) : null };
 }
 
 /** Send on one channel now, and record it as an admin-initiated action. */

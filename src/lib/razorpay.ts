@@ -203,6 +203,12 @@ export function normalise(hook: RazorpayWebhook): NormalisedEvent | null {
 
   const contact = extractContact(entity, payment);
 
+  // If this payment went through a link Tally itself minted, the case it
+  // belongs to is stamped right on it - see createRetryLink. Read before
+  // trusting anything guessed from contact details.
+  const notes = (payment.notes ?? entity.notes ?? {}) as Record<string, unknown>;
+  const tallyEventId = str(notes.tally_event_id);
+
   const amount = num(payment.amount) ?? num(entity.amount) ?? null;
 
   const dueDateEpoch = num(entity.due_date) ?? num(entity.expire_by);
@@ -223,6 +229,7 @@ export function normalise(hook: RazorpayWebhook): NormalisedEvent | null {
       razorpay_event: event,
       payment_id: str(payment.id) ?? str(entity.id),
       order_id: str(payment.order_id) ?? str(entity.order_id),
+      tally_event_id: tallyEventId,
       subscription_id: str(entity.subscription_id) ?? (event.startsWith("subscription.") ? str(entity.id) : null),
       invoice_id: event.startsWith("invoice.") ? str(entity.id) : null,
       method,
@@ -277,6 +284,17 @@ export async function createRetryLink(opts: {
   customerPhone?: string | null;
   description: string;
   referenceId: string;
+  /**
+   * The case this link is for, stamped into the link's own notes.
+   *
+   * Razorpay copies a payment link's notes onto whatever payment is made
+   * through it - so this is what lets any later webhook for that payment,
+   * success or failure, be traced straight back to this exact case, instead
+   * of guessed at from whatever name and email the payer happened to type in
+   * at checkout. Without it, someone paying with different contact details
+   * than the ones on file is a payment Tally cannot connect to anything.
+   */
+  eventId: string;
 }): Promise<string> {
   // Razorpay rejects a reference_id over 40 characters with a 400. Catch it
   // here with a message that says what to do, rather than at the API boundary
@@ -307,6 +325,7 @@ export async function createRetryLink(opts: {
         email: opts.customerEmail ?? undefined,
         contact: opts.customerPhone ?? undefined,
       },
+      notes: { tally_event_id: opts.eventId },
       notify: { sms: false, email: false }, // Tally does the notifying
       reminder_enable: false,
     }),

@@ -151,6 +151,8 @@ export interface BoardRow {
   stop_reason: string | null;
   /** Razorpay's order id, so two identical-looking cases can be told apart. */
   order_id: string | null;
+  /** The one payment link minted for this case, cached and reused - see pay-link.ts. */
+  payment_link_url: string | null;
 }
 
 
@@ -256,6 +258,7 @@ function mapBoardRow(r: Record<string, unknown>): BoardRow {
     next_attempt_at: (r.next_attempt_at as string) ?? null,
     stop_reason: (r.stop_reason as string) ?? null,
     order_id: (r.order_id as string) ?? null,
+    payment_link_url: (r.payment_link_url as string) ?? null,
   };
 }
 

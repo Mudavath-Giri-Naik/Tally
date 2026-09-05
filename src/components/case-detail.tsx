@@ -34,6 +34,8 @@ import {
   MessageCircleIcon,
   ShieldCheckIcon,
   SparklesIcon,
+  LinkIcon,
+  CopyIcon,
 } from "lucide-react";
 
 import { formatINR, type AdminActionId } from "@/lib/types";
@@ -249,6 +251,52 @@ const CHAT_ACTION_LABEL: Record<string, string> = {
  */
 const WA_DOODLE =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M20 28h26a5 5 0 015 5v14a5 5 0 01-5 5H30l-8 7v-7a5 5 0 01-2-4V33a5 5 0 010-5z'/%3E%3Ccircle cx='104' cy='34' r='9'/%3E%3Cpath d='M150 22v20M140 32h20'/%3E%3Cpath d='M188 44c6-10 18-10 18 0s-12 14-18 20c-6-6-18-10-18-20s12-10 18 0z'/%3E%3Cpath d='M28 96c8-12 22-12 30 0'/%3E%3Cpath d='M74 108h22a4 4 0 014 4v10a4 4 0 01-4 4H82l-6 6v-6a4 4 0 01-2-4v-10a4 4 0 014-4z'/%3E%3Ccircle cx='150' cy='104' r='6'/%3E%3Cpath d='M144 128h34M144 136h22'/%3E%3Cpath d='M198 96l8 8-8 8-8-8z'/%3E%3Cpath d='M22 168h30M22 178h18'/%3E%3Ccircle cx='84' cy='176' r='11'/%3E%3Cpath d='M84 170v7l5 3'/%3E%3Cpath d='M126 160c10 0 16 6 16 14s-6 14-16 14-16-6-16-14 6-14 16-14z'/%3E%3Cpath d='M182 164l10 22 10-22'/%3E%3Cpath d='M46 210c10-8 22-8 32 0'/%3E%3Cpath d='M120 214h40M120 222h26'/%3E%3Ccircle cx='202' cy='216' r='8'/%3E%3C/svg%3E\")";
+
+/**
+ * The one payment link for this case, pinned above the conversation.
+ *
+ * There is exactly one - see pay-link.ts - so this is always the same link
+ * every message in the thread below actually carried. Copying it here sends
+ * the same URL an admin asking the agent to "send the link again" would,
+ * rather than a second one Razorpay would mint just as happily.
+ */
+function PinnedLinkCard({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be denied; the link is still selectable text.
+    }
+  }
+
+  return (
+    <div className="bg-background/95 relative mb-1 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs shadow-sm backdrop-blur-sm">
+      <LinkIcon className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate font-mono">{url}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-6 shrink-0 gap-1 px-2 text-xs"
+        onClick={() => void copy()}
+      >
+        {copied ? (
+          <>
+            <CheckIcon className="size-3" aria-hidden="true" /> Copied
+          </>
+        ) : (
+          <>
+            <CopyIcon className="size-3" aria-hidden="true" /> Copy
+          </>
+        )}
+      </Button>
+    </div>
+  );
+}
 
 /** Local wall-clock, WhatsApp style: no date, no seconds, just when. */
 function clockTime(iso: string): string {
@@ -1396,7 +1444,7 @@ export function DetailPanel({
             {/* The conversation with the agent continues the same column,
                 below the story rather than in a panel of its own - what was
                 asked about this case is part of the case. */}
-            {(persistedChat.length > 0 || pending.length > 0 || asking) && (
+            {(persistedChat.length > 0 || pending.length > 0 || asking || row.payment_link_url) && (
               <div className="relative -mx-4 -mb-4 mt-4 overflow-hidden border-t bg-[#efeae2] sm:-mx-6 sm:-mb-6 dark:bg-[#0b141a]">
                 {/* The wallpaper sits in its own layer so it can be inverted
                     for dark mode without touching the text above it. */}
@@ -1406,6 +1454,7 @@ export function DetailPanel({
                   aria-hidden="true"
                 />
                 <div className="relative flex flex-col gap-2 p-3 sm:p-4">
+                  {row.payment_link_url && <PinnedLinkCard url={row.payment_link_url} />}
                   {[...persistedChat, ...pending].map((turn) => (
                     <ChatTurn key={turn.id} turn={turn} />
                   ))}

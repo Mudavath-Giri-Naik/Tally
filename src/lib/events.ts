@@ -468,6 +468,47 @@ export async function updateEvent(
   return data as RecoveryEvent;
 }
 
+/**
+ * The one payment link for this case, if one has already been minted.
+ *
+ * Read before ever calling Razorpay to create another - see
+ * lib/agent/pay-link.ts, the single place a link actually gets created.
+ */
+export async function getCachedPaymentLink(eventId: string): Promise<string | null> {
+  const { data, error } = await db()
+    .from("events")
+    .select("metadata")
+    .eq("id", eventId)
+    .single();
+  if (error) throw new Error(`Could not read event metadata: ${error.message}`);
+  const url = (data?.metadata as Record<string, unknown> | null)?.payment_link_url;
+  return typeof url === "string" ? url : null;
+}
+
+/**
+ * Remember the link just minted for this case, so nothing mints a second one.
+ *
+ * A read-modify-write rather than an RPC: this is written once per case, by
+ * whichever request happens to be the first to need a link, so the window for
+ * two writers racing here is the same window that already exists for two
+ * workers claiming a batch - narrow, and no worse than minting two links,
+ * which is exactly what this function exists to stop happening routinely.
+ */
+export async function cachePaymentLink(eventId: string, url: string): Promise<void> {
+  const { data: existing, error: readError } = await db()
+    .from("events")
+    .select("metadata")
+    .eq("id", eventId)
+    .single();
+  if (readError) throw new Error(`Could not read event metadata: ${readError.message}`);
+  const metadata = {
+    ...((existing?.metadata as Record<string, unknown> | null) ?? {}),
+    payment_link_url: url,
+  };
+  const { error } = await db().from("events").update({ metadata }).eq("id", eventId);
+  if (error) throw new Error(`Could not cache the payment link: ${error.message}`);
+}
+
 /** Put a claimed event back on the queue, to be retried at a later time. */
 export async function requeueFor(
   eventId: string,
@@ -731,12 +772,70 @@ export async function markRecoveredByReference(
   refs: {
     orderId?: string | null;
     subscriptionId?: string | null;
+    /**
+     * The case this payment's own link was minted for, read straight off the
+     * notes Tally stamped onto it at creation (see createRetryLink). Tried
+     * before anything else below - it does not depend on the order id
+     * matching, or on the payer's name and email matching what is on file,
+     * both of which a fresh checkout with different details breaks.
+     */
+    tallyEventId?: string | null;
     /** Resolved from the paying customer, for the fallback below. */
     customerId?: string | null;
   },
   amount: number | null,
 ): Promise<RecoveryEvent[]> {
   const recovered: RecoveryEvent[] = [];
+
+  if (refs.tallyEventId) {
+    const { data, error } = await db()
+      .from("events")
+      .update({
+        status: "recovered",
+        recovered_amount: amount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("merchant_id", merchantId)
+      .eq("id", refs.tallyEventId)
+      .in("status", ["queued", "processing", "stopped"])
+      .select();
+    if (error) throw new Error(`Could not mark event recovered: ${error.message}`);
+    recovered.push(...((data ?? []) as RecoveryEvent[]));
+
+    // One real payment closing a case for certain is exactly the moment any
+    // other open case for the same customer should close too, rather than
+    // separately getting marked paid later and counting the same rupee twice.
+    for (const closed of recovered) {
+      if (!closed.customer_id) continue;
+      const siblings = await otherOpenEventsForCustomer(merchantId, closed.customer_id, closed.id);
+      for (const sibling of siblings) {
+        await updateEvent(sibling.id, {
+          status: "stopped",
+          stop_reason: "covered_by_linked_payment",
+          next_attempt_at: null,
+        });
+        await recordAction({
+          eventId: sibling.id,
+          merchantId,
+          channel: null,
+          message: null,
+          outcome: "no_action",
+          decision: {
+            root_cause: sibling.reason ?? "unknown",
+            intervention: "stop",
+            channel: null,
+            rationale:
+              `Closed without being counted as a second recovery - case ${closed.id.slice(0, 8)} ` +
+              "for the same customer was just confirmed paid by Razorpay.",
+            source: "guardrail",
+            guardrail: "covered_by_linked_payment",
+          },
+        });
+      }
+    }
+
+    if (recovered.length > 0) return recovered;
+  }
 
   for (const [key, value] of [
     ["metadata->>order_id", refs.orderId],

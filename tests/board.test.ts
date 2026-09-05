@@ -36,6 +36,7 @@ function row(over: Partial<BoardRow> = {}): BoardRow {
     next_attempt_at: null,
     stop_reason: null,
     order_id: "order_1",
+    payment_link_url: null,
     ...over,
   };
 }

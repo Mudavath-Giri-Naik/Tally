@@ -22,6 +22,7 @@ import {
   ingestEvent,
   markRecoveredByReference,
   findCustomerByContact,
+  getEvent,
 } from "@/lib/events";
 import { normalisePhone } from "@/lib/razorpay";
 
@@ -95,6 +96,14 @@ export async function POST(
         {};
       const amount =
         typeof entity.amount === "number" ? (entity.amount as number) : null;
+      // The case this payment's link was minted for, if it was one of
+      // Tally's own - see createRetryLink. Tried first in
+      // markRecoveredByReference, ahead of order id and ahead of guessing
+      // from contact details, because it is the only one of the three that
+      // survives a payer entering a different name and email at checkout.
+      const notes = (entity.notes ?? {}) as Record<string, unknown>;
+      const tallyEventId =
+        typeof notes.tally_event_id === "string" ? notes.tally_event_id : null;
       // Resolved so a payment that cannot be matched by order id can still
       // be credited to that customer's open case - a retried checkout is a
       // new Razorpay order, so the reference never matches the case it paid.
@@ -108,6 +117,7 @@ export async function POST(
         {
           orderId: (entity.order_id ?? entity.id) as string | null,
           subscriptionId: (entity.subscription_id ?? null) as string | null,
+          tallyEventId,
           customerId,
         },
         amount,
@@ -118,6 +128,26 @@ export async function POST(
     const normalised = normalise(hook);
     if (!normalised) {
       return NextResponse.json({ status: "ignored", event: hook.event });
+    }
+
+    // A failure inside a checkout for a link Tally already minted - a
+    // declined first try before the card that worked, say - is not a new
+    // problem. It is noise from chasing the case that link belongs to, and
+    // opening a second case for it would double the board for every retry a
+    // payer makes on the way to actually paying.
+    const belongsTo =
+      typeof normalised.metadata.tally_event_id === "string"
+        ? normalised.metadata.tally_event_id
+        : null;
+    if (belongsTo) {
+      const existing = await getEvent(merchant.id, belongsTo).catch(() => null);
+      if (existing) {
+        return NextResponse.json({
+          status: "ignored",
+          reason: "belongs_to_existing_case",
+          event_id: existing.id,
+        });
+      }
     }
 
     // Razorpay's own event id is the idempotency key. If it is absent, fall

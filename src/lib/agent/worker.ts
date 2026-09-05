@@ -18,7 +18,7 @@ import {
   updateEvent,
   requeueFor,
 } from "../events";
-import { getMerchant, razorpayCredentials } from "../merchants";
+import { getMerchant } from "../merchants";
 import { db } from "../supabase";
 import {
   conversationTurns,
@@ -27,7 +27,7 @@ import {
   type ConversationContext,
 } from "./converse";
 import { menuBlock } from "../menu";
-import { createRetryLink, retryLinkReference } from "../razorpay";
+import { paymentLinkForEvent } from "./pay-link";
 import { profileFor } from "../classify";
 import { stripInventedLinks, dropUnbackedLinkPromise } from "./links";
 import { workflowFor, workflowEnabled, WORKFLOWS } from "../workflows";
@@ -96,22 +96,13 @@ async function buildRetryLink(
 ): Promise<string | null> {
   if (!shouldAttachLink(event)) return null;
   try {
-    const creds = razorpayCredentials(merchant);
-    return await createRetryLink({
-      keyId: creds.keyId,
-      keySecret: creds.keySecret,
-      amount: event.amount!,
-      currency: event.currency,
-      customerName: customer.name,
-      customerEmail: customer.email,
-      customerPhone: customer.phone,
-      description: `Payment to ${merchant.business_name}`,
-      // Unique per attempt, so Razorpay's duplicate-reference rejection makes
-      // link creation idempotent if the worker retries this event.
-      //
-      // Razorpay caps reference_id at 40 characters; see retryLinkReference.
-      referenceId: retryLinkReference(event.id, event.attempts),
-    });
+    // The same link every attempt reuses - see pay-link.ts. Minting a fresh
+    // one per attempt fragmented one case's payment across several link ids,
+    // and none of them carried anything connecting a payment back to this
+    // case beyond a guess at the payer's contact details.
+    const { url, error } = await paymentLinkForEvent(merchant, event, customer);
+    if (error) throw new Error(error);
+    return url;
   } catch (err) {
     // A missing link is a degraded message, not a failed one. Send anyway.
     console.error("[worker] retry link creation failed", {

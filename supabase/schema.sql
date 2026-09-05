@@ -978,7 +978,11 @@ create or replace function merchant_board(
   -- Razorpay's own order id. Two failures for the same customer and amount
   -- are otherwise indistinguishable on screen, and "which order was this?"
   -- is the first thing anyone asks.
-  order_id       text
+  order_id       text,
+  -- The one payment link minted for this case (see pay-link.ts) - cached on
+  -- the event so the panel can show and reuse the exact link that went out,
+  -- rather than the board only knowing one exists after the fact.
+  payment_link_url text
 )
 language sql stable
 as $fn$
@@ -1064,7 +1068,8 @@ as $fn$
          e.hold_until,
          e.next_attempt_at,
          e.stop_reason,
-         e.metadata->>'order_id'
+         e.metadata->>'order_id',
+         e.metadata->>'payment_link_url'
   from events e
   join merchants m on m.id = e.merchant_id
   left join customers c on c.id = e.customer_id

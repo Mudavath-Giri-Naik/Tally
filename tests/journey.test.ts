@@ -41,6 +41,7 @@ function row(over: Partial<BoardRow> = {}): BoardRow {
     next_attempt_at: "2026-09-03T13:00:00Z",
     stop_reason: null,
     order_id: "order_X1",
+    payment_link_url: null,
     ...over,
   };
 }
