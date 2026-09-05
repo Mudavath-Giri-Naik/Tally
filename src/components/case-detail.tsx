@@ -813,11 +813,20 @@ function PendingCard({
     sentBody: string | null;
   } | null;
 }) {
+  // Ticks once a second so the "in 1h 53m" badge counts down live instead of
+  // freezing at whatever it read on the render that happened to be waiting
+  // for a chat answer or an SSE push.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const waitingUntil =
-    row.next_attempt_at && Date.parse(row.next_attempt_at) > Date.now()
+    row.next_attempt_at && Date.parse(row.next_attempt_at) > now
       ? row.next_attempt_at
       : null;
-  const snoozed = row.hold_until !== null && Date.parse(row.hold_until) > Date.now();
+  const snoozed = row.hold_until !== null && Date.parse(row.hold_until) > now;
   const nextAttemptNo = row.attempts + 1;
   const isFinal = nextAttemptNo >= row.max_attempts;
 
@@ -833,7 +842,7 @@ function PendingCard({
             className="text-muted-foreground ml-auto shrink-0 text-xs tabular-nums"
             title={shortTime(waitingUntil)}
           >
-            in {formatDuration((Date.parse(waitingUntil) - Date.now()) / 1000)}
+            in {formatDuration((Date.parse(waitingUntil) - now) / 1000)}
           </span>
         )}
       </div>
