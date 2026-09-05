@@ -204,10 +204,16 @@ export async function openEventsForCustomer(
 }
 
 /**
- * Use case 14: how many times has this customer failed before?
+ * Use case 14: how many times has this customer failed before, and stayed
+ * failed?
  *
  * After a few billing cycles of the same failure, automated nudging has
- * stopped working and a human should take over.
+ * stopped working and a human should take over - but only when nudging is
+ * actually what's still true. A failure that was later paid, whether on that
+ * same case or a linked one, is a success story, not evidence the agent isn't
+ * working, and counting it here escalated customers who had already paid
+ * straight to a human with no one having checked whether they still owed
+ * anything.
  */
 export async function priorFailureCount(
   merchantId: string,
@@ -224,6 +230,8 @@ export async function priorFailureCount(
     .eq("merchant_id", merchantId)
     .eq("customer_id", customerId)
     .in("type", ["payment_failed", "subscription_failed", "mandate_retry"])
+    .neq("status", "recovered")
+    .neq("stop_reason", "covered_by_linked_payment")
     .gte("created_at", since);
   if (error) throw new Error(`Could not count prior failures: ${error.message}`);
   return count ?? 0;
