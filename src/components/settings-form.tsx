@@ -83,9 +83,11 @@ export interface SettingsValues {
 
 export function SettingsForm({
   merchantId,
+  businessName,
   initial,
 }: {
   merchantId: string;
+  businessName: string;
   initial: SettingsValues;
 }) {
   const router = useRouter();
@@ -124,6 +126,34 @@ export function SettingsForm({
   // Compared against the server's values, not a dirty flag, so undoing an edit
   // by hand correctly disables the button again.
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function deleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ business_name: deleteConfirm }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        setDeleteError(json.error ?? "Could not delete this business.");
+        return;
+      }
+      // The dashboard this page lives on no longer exists once this returns -
+      // nowhere left in the app to send someone back to but the start.
+      router.push("/");
+    } catch {
+      setDeleteError("Could not reach Tally. Check your connection and try again.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function set<K extends keyof SettingsValues>(key: K, value: SettingsValues[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -436,6 +466,45 @@ export function SettingsForm({
           </span>
         )}
       </div>
+
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="text-destructive">Danger zone</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Permanently deletes {businessName} - every customer, case and
+            message Tally has recorded for this business. There is no undo,
+            and no way to recover this data afterward. Your Razorpay account
+            itself is untouched; you would need to re-onboard to use Tally
+            for it again.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Label htmlFor="delete-confirm" className="text-sm">
+            Type <span className="font-mono font-semibold">{businessName}</span> to confirm
+          </Label>
+          <Input
+            id="delete-confirm"
+            className="max-w-sm"
+            value={deleteConfirm}
+            onChange={(e) => {
+              setDeleteConfirm(e.target.value);
+              setDeleteError(null);
+            }}
+            placeholder={businessName}
+            autoComplete="off"
+          />
+          {deleteError && <p className="text-destructive text-sm">{deleteError}</p>}
+          <div>
+            <Button
+              variant="destructive"
+              disabled={deleting || deleteConfirm !== businessName}
+              onClick={() => void deleteAccount()}
+            >
+              {deleting ? "Deleting…" : `Delete ${businessName}`}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

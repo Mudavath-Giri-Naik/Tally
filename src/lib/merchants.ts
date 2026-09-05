@@ -337,3 +337,18 @@ export async function updateMerchantSettings(
   if (error) throw new Error(`Could not update merchant: ${error.message}`);
   return data as Merchant;
 }
+
+/**
+ * Delete a business and everything scoped to it.
+ *
+ * `customers`, `events` and `actions` all carry `merchant_id references
+ * merchants(id) on delete cascade` (see supabase/schema.sql), so removing the
+ * merchant row is the whole operation - nothing needs deleting separately, and
+ * nothing is left behind pointing at a business that no longer exists.
+ *
+ * There is no undo. The caller is where a confirmation belongs, not here.
+ */
+export async function deleteMerchant(id: string): Promise<void> {
+  const { error } = await db().from("merchants").delete().eq("id", id);
+  if (error) throw new Error(`Could not delete merchant: ${error.message}`);
+}

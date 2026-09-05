@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import {
   getMerchant,
   updateMerchantSettings,
+  deleteMerchant,
   toPublic,
   ValidationError,
 } from "@/lib/merchants";
@@ -198,6 +199,53 @@ export async function PATCH(
     console.error("[settings] update failed", err);
     return NextResponse.json(
       { error: "Could not save those settings right now." },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * DELETE /api/merchants/:id — remove a business and every customer, event
+ * and action scoped to it.
+ *
+ * The business name has to be sent back exactly as confirmation, on top of
+ * whatever the client already asked - a client-side "type the name" dialog is
+ * only as safe as the JavaScript that renders it, and this is not an action
+ * that gets a second chance.
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ merchantId: string }> },
+): Promise<NextResponse> {
+  const { merchantId } = await params;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Malformed JSON body." }, { status: 400 });
+  }
+
+  const existing = await getMerchant(merchantId);
+  if (!existing) {
+    return NextResponse.json({ error: "No such business." }, { status: 404 });
+  }
+
+  const confirm = typeof body.business_name === "string" ? body.business_name.trim() : "";
+  if (confirm !== existing.business_name) {
+    return NextResponse.json(
+      { error: "Type the business name exactly to confirm deletion.", field: "business_name" },
+      { status: 422 },
+    );
+  }
+
+  try {
+    await deleteMerchant(merchantId);
+    return NextResponse.json({ deleted: true });
+  } catch (err) {
+    console.error("[settings] delete failed", err);
+    return NextResponse.json(
+      { error: "Could not delete this business right now." },
       { status: 500 },
     );
   }

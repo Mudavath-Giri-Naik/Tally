@@ -19,10 +19,13 @@ export const dynamic = "force-dynamic";
 
 const RAZORPAY_EVENTS = [
   "payment.failed",
+  "payment.captured",
+  "payment.authorized",
   "order.paid",
   "subscription.halted",
   "subscription.charged",
   "invoice.expired",
+  "invoice.paid",
 ];
 
 export default async function SettingsPage({
@@ -47,6 +50,7 @@ export default async function SettingsPage({
 
       <SettingsForm
         merchantId={merchant.id}
+        businessName={merchant.business_name}
         initial={{
           contact_window_start: merchant.contact_window_start,
           contact_window_end: merchant.contact_window_end,

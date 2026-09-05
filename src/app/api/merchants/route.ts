@@ -76,10 +76,13 @@ export async function POST(request: Request): Promise<NextResponse> {
           dashboard_url: publicMerchant.dashboard_url,
           events_to_subscribe: [
             "payment.failed",
+            "payment.captured",
+            "payment.authorized",
             "order.paid",
             "subscription.halted",
             "subscription.charged",
             "invoice.expired",
+            "invoice.paid",
           ],
         },
       },
