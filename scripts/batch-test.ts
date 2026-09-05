@@ -68,6 +68,8 @@ const SCENARIOS: Array<{
   { type: "cart_abandoned", reason: "customer_abandoned", amount: 349900, weight: 3 },
   { type: "receivable_overdue", reason: "invoice_unpaid", amount: 2500000, weight: 1 },
   { type: "promise_to_pay", reason: "invoice_unpaid", amount: 1200000, weight: 1 },
+  { type: "payment_link_expired", reason: "payment_link_expired", amount: 199900, weight: 3 },
+  { type: "cod_refused", reason: "cod_refused", amount: 89900, weight: 2 },
   { type: "payment_failed", reason: "insufficient_funds", amount: 1500000, weight: 1 }, // high value
 ];
 

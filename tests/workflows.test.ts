@@ -27,6 +27,11 @@ describe("mapping an event to its workflow", () => {
     assert.equal(workflowFor("subscription_failed", "unknown"), "subscription_autopay");
     assert.equal(workflowFor("mandate_retry", "unknown"), "subscription_autopay");
     assert.equal(workflowFor("receivable_overdue", "invoice_unpaid"), "overdue_invoice");
+    assert.equal(
+      workflowFor("payment_link_expired", "payment_link_expired"),
+      "payment_link",
+    );
+    assert.equal(workflowFor("cod_refused", "cod_refused"), "cod_recovery");
   });
 
   test("the event type, not the cause, separates an abandoned checkout from a decline", () => {
@@ -68,6 +73,8 @@ describe("mapping an event to its workflow", () => {
       "promise_to_pay",
       "receivable_overdue",
       "mandate_retry",
+      "payment_link_expired",
+      "cod_refused",
     ] as const;
     for (const t of types) {
       const w = workflowFor(t, "unknown");
@@ -92,6 +99,8 @@ describe("business type pre-checks", () => {
     assert.deepEqual(workflowsForBusinessType("ecommerce"), [
       "checkout_abandonment",
       "failed_payment",
+      "payment_link",
+      "cod_recovery",
     ]);
     assert.deepEqual(workflowsForBusinessType("saas"), [
       "failed_payment",
@@ -102,6 +111,7 @@ describe("business type pre-checks", () => {
     assert.deepEqual(workflowsForBusinessType("b2b"), [
       "overdue_invoice",
       "failed_payment",
+      "payment_link",
     ]);
     assert.deepEqual(workflowsForBusinessType("mixed"), WORKFLOW_IDS);
   });

@@ -20,6 +20,7 @@ import {
   CreditCardIcon,
   DatabaseIcon,
   FileTextIcon,
+  LinkIcon,
   MailIcon,
   MessageCircleIcon,
   PhoneIcon,
@@ -29,6 +30,7 @@ import {
   ShieldCheckIcon,
   ShoppingCartIcon,
   SparklesIcon,
+  TruckIcon,
   UserIcon,
   WebhookIcon,
 } from "lucide-react";
@@ -75,11 +77,13 @@ interface Node {
 }
 
 const NODES: Node[] = [
-  // Column A - the four shapes a failure arrives in.
-  { id: "n-failed", x: 70, y: 70, icon: CreditCardIcon, label: "Failed payment", tone: "rose", size: "sm" },
-  { id: "n-mandate", x: 70, y: 170, icon: RepeatIcon, label: "Mandate retry", tone: "rose", size: "sm" },
-  { id: "n-cart", x: 70, y: 270, icon: ShoppingCartIcon, label: "Cart abandoned", tone: "rose", size: "sm" },
-  { id: "n-invoice", x: 70, y: 370, icon: FileTextIcon, label: "Overdue invoice", tone: "rose", size: "sm" },
+  // Column A - the six shapes a failure arrives in.
+  { id: "n-failed", x: 70, y: 40, icon: CreditCardIcon, label: "Failed payment", tone: "rose", size: "sm" },
+  { id: "n-mandate", x: 70, y: 118, icon: RepeatIcon, label: "Mandate retry", tone: "rose", size: "sm" },
+  { id: "n-cart", x: 70, y: 196, icon: ShoppingCartIcon, label: "Cart abandoned", tone: "rose", size: "sm" },
+  { id: "n-invoice", x: 70, y: 274, icon: FileTextIcon, label: "Overdue invoice", tone: "rose", size: "sm" },
+  { id: "n-link", x: 70, y: 352, icon: LinkIcon, label: "Link expired", tone: "rose", size: "sm" },
+  { id: "n-cod", x: 70, y: 430, icon: TruckIcon, label: "COD refused", tone: "rose", size: "sm" },
 
   // Column B - one webhook, verified and classified.
   { id: "n-webhook", x: 300, y: 220, icon: WebhookIcon, label: "Verify & classify", sub: "one webhook, every merchant", tone: "slate", size: "md" },
@@ -111,11 +115,13 @@ interface Flow {
 }
 
 const FLOWS: Flow[] = [
-  // A -> B, four causes converging on one classifier.
-  { d: "M 108 70 C 200 70, 220 150, 262 210", tone: "rose" },
-  { d: "M 108 170 C 180 170, 210 190, 262 215", tone: "rose" },
-  { d: "M 108 270 C 180 270, 210 250, 262 225", tone: "rose" },
-  { d: "M 108 370 C 200 370, 220 290, 262 230", tone: "rose" },
+  // A -> B, six causes converging on one classifier.
+  { d: "M 108 40 C 200 40, 220 130, 262 205", tone: "rose" },
+  { d: "M 108 118 C 190 118, 215 165, 262 211", tone: "rose" },
+  { d: "M 108 196 C 180 196, 210 205, 262 217", tone: "rose" },
+  { d: "M 108 274 C 180 274, 210 235, 262 223", tone: "rose" },
+  { d: "M 108 352 C 190 352, 215 275, 262 229", tone: "rose" },
+  { d: "M 108 430 C 200 430, 220 310, 262 235", tone: "rose" },
 
   // B -> the engine cluster's left edge.
   { d: "M 338 220 C 400 220, 400 220, 460 220", tone: "slate" },
@@ -140,7 +146,7 @@ const FLOWS: Flow[] = [
   },
 ];
 
-/** The four causes above the fold, then the recovery engine's own six
+/** The six causes above the fold, then the recovery engine's own six
  *  internal steps - counted separately because the second group is the one
  *  a merchant will actually recognise from their own dashboard. */
 const CLUSTER = { x: 460, y: 40, w: 400, h: 340 };

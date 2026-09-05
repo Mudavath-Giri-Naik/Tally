@@ -1,15 +1,15 @@
 /**
- * Workflows - the four kinds of recovery Tally runs, and which one a given
+ * Workflows - the kinds of recovery Tally runs, and which one a given
  * event belongs to.
  *
  * A merchant enables these at the category level, never per root cause: a
  * B2B wholesaler has no checkout to abandon, and a SaaS business has no
- * invoices to chase. Nine root-cause switches would be the same decision
- * asked nine times, in vocabulary a merchant admin does not think in.
+ * invoices to chase. A dozen root-cause switches would be the same decision
+ * asked a dozen times, in vocabulary a merchant admin does not think in.
  *
  * Pure data and one mapping function, with no database access and no server
  * imports, so the settings form, the onboarding page, the dashboard and the
- * worker's gate all read the same definition rather than four copies of it.
+ * worker's gate all read the same definition rather than several copies of it.
  */
 import type { EventType, RootCause } from "./types";
 
@@ -17,13 +17,17 @@ export type WorkflowId =
   | "checkout_abandonment"
   | "failed_payment"
   | "subscription_autopay"
-  | "overdue_invoice";
+  | "overdue_invoice"
+  | "payment_link"
+  | "cod_recovery";
 
 export const WORKFLOW_IDS: WorkflowId[] = [
   "checkout_abandonment",
   "failed_payment",
   "subscription_autopay",
   "overdue_invoice",
+  "payment_link",
+  "cod_recovery",
 ];
 
 export interface WorkflowDef {
@@ -49,8 +53,9 @@ export const WORKFLOWS: Record<WorkflowId, WorkflowDef> = {
     label: "Failed payment recovery",
     summary: "Someone attempted a payment and it was declined.",
     covers:
-      "Insufficient funds, expired or blocked cards, OTP and 3DS failures, " +
-      "international declines, and bank or gateway timeouts.",
+      "Insufficient funds, expired or blocked cards, incorrect card details, " +
+      "OTP and 3DS failures, international declines, risk-based declines, " +
+      "and bank or gateway timeouts.",
   },
   subscription_autopay: {
     id: "subscription_autopay",
@@ -67,6 +72,23 @@ export const WORKFLOWS: Record<WorkflowId, WorkflowDef> = {
     covers:
       "Invoices unnoticed, forgotten, disputed, or held up by the customer's " +
       "own cash flow.",
+  },
+  payment_link: {
+    id: "payment_link",
+    label: "Payment link recovery",
+    summary: "A payment link was sent and never paid.",
+    covers:
+      "Links that expired before anyone opened them, links opened but " +
+      "abandoned before paying, and one-off collection requests sent over " +
+      "WhatsApp or SMS that went unanswered.",
+  },
+  cod_recovery: {
+    id: "cod_recovery",
+    label: "COD non-collection recovery",
+    summary: "A cash-on-delivery order was refused or never collected.",
+    covers:
+      "Refused-at-the-door deliveries, return-to-origin parcels, and " +
+      "customers who stopped answering the courier's attempts.",
   },
 };
 
@@ -108,6 +130,10 @@ export function workflowFor(
       return "subscription_autopay";
     case "receivable_overdue":
       return "overdue_invoice";
+    case "payment_link_expired":
+      return "payment_link";
+    case "cod_refused":
+      return "cod_recovery";
     case "promise_to_pay":
       return null;
   }
@@ -150,7 +176,12 @@ export const BUSINESS_TYPES: BusinessTypeDef[] = [
     id: "ecommerce",
     label: "E-commerce or retail",
     note: "One-off orders, a checkout, no recurring billing.",
-    workflows: ["checkout_abandonment", "failed_payment"],
+    workflows: [
+      "checkout_abandonment",
+      "failed_payment",
+      "payment_link",
+      "cod_recovery",
+    ],
   },
   {
     id: "saas",
@@ -162,7 +193,7 @@ export const BUSINESS_TYPES: BusinessTypeDef[] = [
     id: "b2b",
     label: "B2B or wholesale",
     note: "Invoices with payment terms. Most also take card payments.",
-    workflows: ["overdue_invoice", "failed_payment"],
+    workflows: ["overdue_invoice", "failed_payment", "payment_link"],
   },
   {
     id: "mixed",
@@ -188,7 +219,7 @@ export function workflowsForBusinessType(type: BusinessType): WorkflowId[] {
 /**
  * What a merchant gets when nothing was chosen.
  *
- * All four, deliberately: a merchant who never answered the question is
+ * Every workflow, deliberately: a merchant who never answered the question is
  * better served by Tally chasing something it need not have than by it
  * silently ignoring a category of real lost revenue.
  */

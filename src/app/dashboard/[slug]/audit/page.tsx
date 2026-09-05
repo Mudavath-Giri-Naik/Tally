@@ -8,7 +8,7 @@
 import { notFound } from "next/navigation";
 
 import { resolveMerchant } from "@/lib/merchants";
-import { customerRows } from "@/lib/insights";
+import { customerRows, channelPerformance } from "@/lib/insights";
 import { merchantInvariants, merchantSendHours } from "@/lib/evidence";
 import { AuditTrail } from "@/components/audit-trail";
 
@@ -35,10 +35,11 @@ export default async function AuditPage({
     end: merchant.contact_window_end,
   };
 
-  const [customers, invariants, hours] = await Promise.all([
+  const [customers, invariants, hours, channels] = await Promise.all([
     customerRows(merchant.id, 500).catch(() => []),
     merchantInvariants(merchant.id, since),
     merchantSendHours(merchant.id, since, window),
+    channelPerformance(merchant.id, SUMMARY_DAYS).catch(() => []),
   ]);
 
   return (
@@ -47,6 +48,7 @@ export default async function AuditPage({
       customers={customers.map((c) => ({ id: c.id, name: c.name }))}
       invariants={invariants}
       hours={hours}
+      channels={channels}
       window={window}
       timezone={merchant.timezone}
     />

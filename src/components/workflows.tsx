@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Workflows: which of the four kinds of recovery this merchant runs, and
- * what each one has actually done.
+ * Workflows: which kinds of recovery this merchant runs, and what each one
+ * has actually done.
  *
  * The toggle used to live in Settings, buried under contact rules and the
  * model picker. It moved here because switching a category on or off is a
@@ -130,7 +130,7 @@ export function Workflows({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {WORKFLOW_IDS.map((id) => {
           const s = statFor(id);
           const on = enabled.includes(id);

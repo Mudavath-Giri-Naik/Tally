@@ -286,12 +286,15 @@ function ChatTurn({ turn }: { turn: AdminChatTurn }) {
         </span>
       )}
 
-      {/* What the customer actually received, not a summary of it. An admin
-          who ordered the send is answerable for its wording. */}
+      {/* The actual wording already renders as its own attempt card in the
+          timeline above - repeating it here read as the same send twice in
+          one panel. A pointer back to it keeps the accountability (an admin
+          who ordered the send can still find exactly what went out) without
+          showing the message body in two places at once. */}
       {turn.sentBody && (
-        <div className="mt-2 rounded-md border border-black/10 bg-white/60 p-2.5 text-xs whitespace-pre-wrap dark:border-white/10 dark:bg-black/20">
-          {turn.sentBody}
-        </div>
+        <span className="mt-1.5 block text-xs italic opacity-70">
+          See the message above.
+        </span>
       )}
 
       {turn.error && (
@@ -711,6 +714,8 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   cart_abandoned: "Checkout abandoned",
   receivable_overdue: "Invoice overdue",
   promise_to_pay: "Promised to pay",
+  payment_link_expired: "Payment link expired",
+  cod_refused: "COD delivery refused",
 };
 
 /**

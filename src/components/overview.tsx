@@ -74,7 +74,6 @@ import {
 import {
   ChannelMark,
   DOT_CLASS,
-  WorkflowPills,
   compactINR,
 } from "@/components/case-parts";
 import { CaseBoard } from "@/components/case-board";
@@ -529,9 +528,6 @@ export function Overview({
           </Button>
         </div>
       </div>
-
-      {/* ── active workflows ── */}
-      <WorkflowPills enabled={data.workflows_enabled} slug={slug} />
 
       {/* ── metric row ── */}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">

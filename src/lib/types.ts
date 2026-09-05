@@ -10,7 +10,9 @@ export type EventType =
   | "cart_abandoned"
   | "promise_to_pay"
   | "receivable_overdue"
-  | "mandate_retry";
+  | "mandate_retry"
+  | "payment_link_expired"
+  | "cod_refused";
 
 export type EventStatus =
   | "queued"
@@ -50,6 +52,8 @@ export type RootCause =
   | "mandate_limit_exceeded"
   | "customer_abandoned"
   | "invoice_unpaid"
+  | "payment_link_expired"
+  | "cod_refused"
   | "unknown";
 
 export interface Merchant {
@@ -73,7 +77,7 @@ export interface Merchant {
    * figure has nothing to be compared against.
    */
   holdout_percent: number;
-  /** Which of the four recovery workflows this merchant runs. */
+  /** Which of the recovery workflows this merchant runs. */
   workflows_enabled: WorkflowId[];
   /**
    * Which model backend this business runs on. Null means the platform

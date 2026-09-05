@@ -22,6 +22,7 @@ import {
 import type { ActionType, AuditRow } from "@/lib/audit";
 import { ACTION_TYPES } from "@/lib/audit";
 import type { Invariant, SendHour } from "@/lib/evidence";
+import type { ChannelPerformance } from "@/lib/insights";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChannelMark, shortTime } from "@/components/case-parts";
+import { ChannelMark, CHANNEL_ICON, shortTime } from "@/components/case-parts";
 
 const PAGE_SIZE = 25;
 
@@ -66,7 +67,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 
 function InvariantRow({ inv }: { inv: Invariant }) {
   return (
-    <div className="flex items-start gap-3 py-3">
+    <div className="flex items-start gap-2.5 py-1.5">
       {inv.held ? (
         <CircleCheckIcon
           className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
@@ -121,7 +122,7 @@ function RulesCard({ invariants }: { invariants: Invariant[] }) {
         </p>
       </CardHeader>
       <CardContent>
-        <div className="divide-y">
+        <div className="grid gap-x-6 sm:grid-cols-2">
           {invariants.map((i) => (
             <InvariantRow key={i.id} inv={i} />
           ))}
@@ -138,14 +139,21 @@ function RulesCard({ invariants }: { invariants: Invariant[] }) {
  * the silent hours are the entire point.
  */
 function WindowCard({
-  hours, window, timezone, breaches,
+  hours, window, timezone, breaches, channels,
 }: {
   hours: SendHour[];
   window: { start: string; end: string };
   timezone: string;
   breaches: number;
+  channels: ChannelPerformance[];
 }) {
   const peak = Math.max(1, ...hours.map((h) => h.sends));
+  const totalSent = hours.reduce((sum, h) => sum + h.sends, 0);
+  const inWindowSent = hours
+    .filter((h) => h.inWindow)
+    .reduce((sum, h) => sum + h.sends, 0);
+  const busiest = hours.reduce((best, h) => (h.sends > best.sends ? h : best), hours[0]);
+  const channelPeak = Math.max(1, ...channels.map((c) => c.sent));
 
   return (
     <Card>
@@ -189,6 +197,63 @@ function WindowCard({
           </div>
         </div>
 
+        <div className="grid grid-cols-3 divide-x rounded-lg border">
+          <div className="flex flex-col items-center gap-0.5 px-2 py-3 text-center">
+            <span className="text-xl font-semibold tabular-nums">{totalSent}</span>
+            <span className="text-muted-foreground text-xs">
+              message{totalSent === 1 ? "" : "s"} sent
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5 px-2 py-3 text-center">
+            <span className="text-xl font-semibold tabular-nums">
+              {totalSent === 0 ? "—" : `${String(busiest.hour).padStart(2, "0")}:00`}
+            </span>
+            <span className="text-muted-foreground text-xs">busiest hour</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5 px-2 py-3 text-center">
+            <span className="text-xl font-semibold tabular-nums">
+              {totalSent === 0 ? "—" : `${Math.round((inWindowSent / totalSent) * 100)}%`}
+            </span>
+            <span className="text-muted-foreground text-xs">landed in window</span>
+          </div>
+        </div>
+
+        {channels.length > 0 && (
+          <div className="flex flex-col gap-2.5 rounded-lg border p-3">
+            <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              Delivery by channel
+            </span>
+            <div className="flex flex-col gap-2">
+              {channels.map((c) => (
+                <div key={c.channel} className="flex items-center gap-2.5">
+                  <ChannelMark channel={c.channel} size={16} />
+                  <span className="w-16 shrink-0 text-xs">
+                    {CHANNEL_ICON[c.channel]?.label ?? c.channel}
+                  </span>
+                  <div className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
+                    <div
+                      className="h-full rounded-full bg-sky-500"
+                      style={{ width: `${Math.max(4, (c.sent / channelPeak) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-6 shrink-0 text-right text-xs tabular-nums">
+                    {c.sent}
+                  </span>
+                  <span className="w-16 shrink-0 text-right text-xs tabular-nums">
+                    {c.failed > 0 ? (
+                      <span className="text-red-600 dark:text-red-400">
+                        {c.failed} failed
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">0 failed</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="text-sm">
           {breaches === 0 ? (
             <span className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
@@ -230,6 +295,7 @@ export function AuditTrail({
   customers,
   invariants,
   hours,
+  channels,
   window,
   timezone,
 }: {
@@ -237,6 +303,7 @@ export function AuditTrail({
   customers: Array<{ id: string; name: string | null }>;
   invariants: Invariant[];
   hours: SendHour[];
+  channels: ChannelPerformance[];
   window: { start: string; end: string };
   timezone: string;
 }) {
@@ -299,20 +366,28 @@ export function AuditTrail({
 
       <div className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold tracking-tight">Did it behave?</h2>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid items-start gap-6 lg:grid-cols-2">
           <RulesCard invariants={invariants} />
           <WindowCard
             hours={hours}
             window={window}
             timezone={timezone}
             breaches={invariants.find((i) => i.id === "contact_window")?.breaches ?? 0}
+            channels={channels}
           />
         </div>
       </div>
 
       <Card className="gap-0 py-0">
         <div className="flex flex-wrap items-center gap-2 border-b p-4 sm:px-6">
-          <Select value={customerId} onValueChange={(v) => setCustomerId(v ?? "all")}>
+          <Select
+            items={[
+              { value: "all", label: "All customers" },
+              ...customers.map((c) => ({ value: c.id, label: c.name ?? "Unknown customer" })),
+            ]}
+            value={customerId}
+            onValueChange={(v) => setCustomerId(v ?? "all")}
+          >
             <SelectTrigger className="w-[220px] rounded-full">
               <SelectValue placeholder="All customers" />
             </SelectTrigger>
@@ -325,7 +400,14 @@ export function AuditTrail({
               ))}
             </SelectContent>
           </Select>
-          <Select value={type} onValueChange={(v) => setType(v ?? "all")}>
+          <Select
+            items={[
+              { value: "all", label: "All actions" },
+              ...ACTION_TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] })),
+            ]}
+            value={type}
+            onValueChange={(v) => setType(v ?? "all")}
+          >
             <SelectTrigger className="w-[160px] rounded-full">
               <SelectValue placeholder="All actions" />
             </SelectTrigger>

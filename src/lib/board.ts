@@ -133,8 +133,8 @@ export interface BoardRow {
   /** The event's own type - payment_failed, cart_abandoned, and so on. */
   event_type: string;
   /**
-   * Which of the four workflows classified and handled this case. Null for
-   * the events no workflow governs - see workflowFor.
+   * Which workflow classified and handled this case. Null for the events no
+   * workflow governs - see workflowFor.
    */
   workflow: WorkflowId | null;
   /** True while an admin's "Pause outreach" is in effect. */

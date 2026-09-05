@@ -298,6 +298,8 @@ export const WORKFLOW_SHORT: Record<WorkflowId, string> = {
   failed_payment: "Failed payment",
   subscription_autopay: "Subscription",
   overdue_invoice: "Overdue invoice",
+  payment_link: "Payment link",
+  cod_recovery: "COD refused",
 };
 
 export const WORKFLOW_CLASS: Record<WorkflowId, string> = {
@@ -309,6 +311,10 @@ export const WORKFLOW_CLASS: Record<WorkflowId, string> = {
     "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/50 dark:text-violet-400 dark:border-violet-900",
   overdue_invoice:
     "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/50 dark:text-teal-400 dark:border-teal-900",
+  payment_link:
+    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:border-rose-900",
+  cod_recovery:
+    "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-900",
 };
 
 /** Which workflow handled one case. Null is the promise-to-pay path - see workflowFor. */
@@ -343,9 +349,9 @@ export function WorkflowBadge({
 /**
  * The active-workflows indicator.
  *
- * Shows all four rather than only the enabled ones: "which am I not running"
- * is the question this answers, and a row that silently omits the off ones
- * cannot answer it.
+ * Shows every workflow rather than only the enabled ones: "which am I not
+ * running" is the question this answers, and a row that silently omits the
+ * off ones cannot answer it.
  */
 export function WorkflowPills({ enabled, slug }: { enabled: WorkflowId[]; slug: string }) {
   return (

@@ -154,6 +154,29 @@ export const ROOT_CAUSE_PROFILES: Record<RootCause, RootCauseProfile> = {
     label: "Invoice unpaid",
     remedy: "A B2B receivable past its due date. Chase on a schedule.",
   },
+  // Use case: a one-off collection link, not a checkout session or a formal
+  // invoice. Nothing was declined - the link simply lapsed or sat unopened.
+  payment_link_expired: {
+    retryable: true,
+    systemic: false,
+    minRetryDelayHours: 0,
+    label: "Payment link expired",
+    remedy:
+      "The link lapsed before they paid, or was never opened. No card or bank " +
+      "problem was ever established - send a fresh link on the same channel.",
+  },
+  // Logistics, not payments: the parcel came back, not a card. The fix is a
+  // different delivery arrangement, not a nudge to retry a charge.
+  cod_refused: {
+    retryable: true,
+    systemic: false,
+    minRetryDelayHours: 24,
+    label: "COD delivery refused",
+    remedy:
+      "The parcel was refused at the door or returned undelivered. Offer a " +
+      "prepaid re-delivery or a payment link so the order can be settled " +
+      "without another delivery attempt.",
+  },
   unknown: {
     retryable: true,
     systemic: false,
@@ -415,6 +438,10 @@ export function defaultCauseForType(type: EventType): RootCause {
       return "invoice_unpaid";
     case "promise_to_pay":
       return "invoice_unpaid";
+    case "payment_link_expired":
+      return "payment_link_expired";
+    case "cod_refused":
+      return "cod_refused";
     default:
       return "unknown";
   }

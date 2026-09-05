@@ -38,14 +38,15 @@ create table if not exists merchants (
   max_attempts          int         not null default 3,
   channels_enabled      text[]      not null default array['email','whatsapp','voice'],
 
-  -- [+] Workflows: which of the four kinds of recovery this merchant runs.
-  -- Chosen at onboarding from their business type, editable in settings. The
-  -- default is all four - a merchant who never chose is better served by Tally
+  -- [+] Workflows: which kinds of recovery this merchant runs. Chosen at
+  -- onboarding from their business type, editable in settings. The default is
+  -- every workflow - a merchant who never chose is better served by Tally
   -- chasing something it need not have than by silently ignoring real lost
   -- revenue. See src/lib/workflows.ts, which owns the mapping from an event to
   -- one of these.
   workflows_enabled     text[]      not null default array[
-    'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+    'checkout_abandonment','failed_payment','subscription_autopay',
+    'overdue_invoice','payment_link','cod_recovery'
   ],
 
   -- Which model backend this business runs on. Null means the platform
@@ -64,7 +65,8 @@ create table if not exists merchants (
   ),
   constraint merchants_workflows_valid check (
     workflows_enabled <@ array[
-      'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+      'checkout_abandonment','failed_payment','subscription_autopay',
+      'overdue_invoice','payment_link','cod_recovery'
     ]::text[]
   ),
   constraint merchants_max_attempts_sane check (max_attempts between 1 and 10)
@@ -73,11 +75,12 @@ create table if not exists merchants (
 -- Workflows, for a database created before this column existed. This has to
 -- run here, above everything that reads it: `create table if not exists`
 -- leaves an already-deployed table untouched, so on an existing database the
--- column arrives only from this line. Backfilling all four keeps behaviour
--- identical across the migration - every category stays on until the merchant
--- chooses otherwise.
+-- column arrives only from this line. Backfilling every category keeps
+-- behaviour identical across the migration - nothing turns off until the
+-- merchant chooses otherwise.
 alter table merchants add column if not exists workflows_enabled text[] not null default array[
-  'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
+  'checkout_abandonment','failed_payment','subscription_autopay',
+  'overdue_invoice','payment_link','cod_recovery'
 ];
 
 -- Same treatment for an already-deployed database: the create block above
@@ -106,19 +109,28 @@ alter table merchants add column if not exists ai_model text;
 -- The check constraint needs the same treatment, and cannot ride along on the
 -- alter above: on an existing table the constraint declared in the create
 -- block never runs, so without this an already-deployed database would accept
--- any string at all in that column. Postgres has no `add constraint if not
--- exists`, hence the guard.
+-- any string at all in that column.
+--
+-- Unlike the guard above, this always drops and recreates rather than adding
+-- only "if not exists": the constraint already exists on any database
+-- deployed before payment_link and cod_recovery were added to the list below,
+-- and a guard that only adds when missing would leave that older, narrower
+-- definition in place forever. Postgres has no `add constraint if not
+-- exists`, and no `create or replace constraint`, so drop-then-add is what
+-- idempotent looks like here.
 do $$
 begin
-  if not exists (
+  if exists (
     select 1 from pg_constraint where conname = 'merchants_workflows_valid'
   ) then
-    alter table merchants add constraint merchants_workflows_valid check (
-      workflows_enabled <@ array[
-        'checkout_abandonment','failed_payment','subscription_autopay','overdue_invoice'
-      ]::text[]
-    );
+    alter table merchants drop constraint merchants_workflows_valid;
   end if;
+  alter table merchants add constraint merchants_workflows_valid check (
+    workflows_enabled <@ array[
+      'checkout_abandonment','failed_payment','subscription_autopay',
+      'overdue_invoice','payment_link','cod_recovery'
+    ]::text[]
+  );
 end $$;
 
 -- --- customers -------------------------------------------------------------
@@ -230,13 +242,34 @@ create table if not exists events (
 
   constraint events_type_valid check (type in (
     'payment_failed', 'subscription_failed', 'cart_abandoned',
-    'promise_to_pay', 'receivable_overdue', 'mandate_retry'
+    'promise_to_pay', 'receivable_overdue', 'mandate_retry',
+    'payment_link_expired', 'cod_refused'
   )),
   constraint events_status_valid check (status in (
     'queued', 'processing', 'recovered', 'unrecoverable', 'stopped'
   )),
   constraint events_amount_nonneg check (amount is null or amount >= 0)
 );
+
+-- Widened from the original six event types to add payment_link_expired and
+-- cod_refused. `create table if not exists` above never touches an
+-- already-deployed table's constraints, so an existing database keeps the
+-- narrower list until this runs - drop-then-add, the same idempotent pattern
+-- as merchants_workflows_valid below, since Postgres has no
+-- `add constraint if not exists` or `create or replace constraint`.
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'events_type_valid'
+  ) then
+    alter table events drop constraint events_type_valid;
+  end if;
+  alter table events add constraint events_type_valid check (type in (
+    'payment_failed', 'subscription_failed', 'cart_abandoned',
+    'promise_to_pay', 'receivable_overdue', 'mandate_retry',
+    'payment_link_expired', 'cod_refused'
+  ));
+end $$;
 
 -- Admin overrides, for a database created before these columns existed. Same
 -- reason as the merchants alter above, and same hard requirement about where
@@ -931,9 +964,9 @@ create or replace function merchant_board(
   -- email and then WhatsApp was showing only the second, so the table could
   -- not show that the escalation had happened at all.
   channels_used  text[],
-  -- The event's own type (payment_failed, cart_abandoned, ...). Fixed at six
-  -- values by the events_type_valid check constraint - this is what "Active
-  -- workflows" on the dashboard counts distinct occurrences of.
+  -- The event's own type (payment_failed, cart_abandoned, ...). Fixed to a
+  -- known list by the events_type_valid check constraint - this is what
+  -- "Active workflows" on the dashboard counts distinct occurrences of.
   event_type     text,
   paused         boolean,
   hold_until     timestamptz,

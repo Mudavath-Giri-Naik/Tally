@@ -325,5 +325,10 @@ describe("defaultCauseForType", () => {
     assert.equal(defaultCauseForType("cart_abandoned"), "customer_abandoned");
     assert.equal(defaultCauseForType("receivable_overdue"), "invoice_unpaid");
     assert.equal(defaultCauseForType("promise_to_pay"), "invoice_unpaid");
+    assert.equal(
+      defaultCauseForType("payment_link_expired"),
+      "payment_link_expired",
+    );
+    assert.equal(defaultCauseForType("cod_refused"), "cod_refused");
   });
 });

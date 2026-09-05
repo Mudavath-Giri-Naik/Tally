@@ -13,8 +13,10 @@
     "db:push": "tsx --env-file-if-exists=.env scripts/db-push.ts",
     "seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "worker": "tsx --env-file-if-exists=.env scripts/run-worker.ts",
+    "demo": "tsx --env-file-if-exists=.env scripts/demo-trigger.ts",
     "batch": "tsx --env-file-if-exists=.env scripts/batch-test.ts",
     "clean:batch": "tsx --env-file-if-exists=.env scripts/clean-batch.ts",
+    "delete-merchant": "tsx --env-file-if-exists=.env scripts/delete-merchant.ts",
     "stack:up": "bash scripts/start-local-stack.sh",
     "stack:down": "docker rm -f tally-pg tally-postgrest",
     "ai:key": "tsx --env-file-if-exists=.env scripts/ai-key.ts"

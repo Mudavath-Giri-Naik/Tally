@@ -18,6 +18,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+/** Sentinel for "no explicit choice" - an empty string is not a valid
+ *  SelectItem value, and this reads better than a magic "" would anyway. */
+const PROVIDER_DEFAULT = "__default__";
+const MODEL_DEFAULT = "__default__";
 
 const CHANNELS: Array<{ id: Channel; label: string; note: string }> = [
   { id: "email", label: "Email", note: "Cheapest, and always available." },
@@ -268,23 +280,30 @@ export function SettingsForm({
               Keys are held centrally - if one is rate-limited the next is used
               automatically, and another provider only after that.
             </p>
-            <select
-              id="ai"
-              className="border-input bg-background h-9 w-full max-w-xs rounded-md border px-3 text-sm"
-              value={form.ai_provider ?? ""}
-              onChange={(e) => {
-                const next = e.target.value === "" ? null : e.target.value;
+            <Select
+              items={[
+                { value: PROVIDER_DEFAULT, label: "Platform default (Groq)" },
+                ...AI_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+              ]}
+              value={form.ai_provider ?? PROVIDER_DEFAULT}
+              onValueChange={(v) => {
+                const next = v === PROVIDER_DEFAULT ? null : v;
                 set("ai_provider", next);
                 void save({ ai_provider: next });
               }}
             >
-              <option value="">Platform default (Groq)</option>
-              {AI_PROVIDERS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="ai" className="w-full max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PROVIDER_DEFAULT}>Platform default (Groq)</SelectItem>
+                {AI_PROVIDERS.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {errorField === "ai_provider" && (
               <p className="text-destructive text-sm">{error}</p>
             )}
@@ -294,24 +313,34 @@ export function SettingsForm({
                 <Label htmlFor="aim" className="text-xs">
                   Model
                 </Label>
-                <select
-                  id="aim"
-                  className="border-input bg-background h-9 w-full max-w-xs rounded-md border px-3 text-sm"
-                  value={form.ai_model ?? ""}
-                  onChange={(e) => {
-                    const next = e.target.value === "" ? null : e.target.value;
+                <Select
+                  items={[
+                    { value: MODEL_DEFAULT, label: "Provider default" },
+                    ...(AI_MODELS[form.ai_provider ?? "groq"] ?? []).map((m) => ({
+                      value: m,
+                      label: m,
+                    })),
+                  ]}
+                  value={form.ai_model ?? MODEL_DEFAULT}
+                  onValueChange={(v) => {
+                    const next = v === MODEL_DEFAULT ? null : v;
                     set("ai_model", next);
                     setCheck(null);
                     void save({ ai_model: next });
                   }}
                 >
-                  <option value="">Provider default</option>
-                  {(AI_MODELS[form.ai_provider ?? "groq"] ?? []).map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="aim" className="w-full max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={MODEL_DEFAULT}>Provider default</SelectItem>
+                    {(AI_MODELS[form.ai_provider ?? "groq"] ?? []).map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* A real call, not a config check. A revoked key, a renamed

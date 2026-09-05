@@ -50,6 +50,13 @@
 }
 
 :root {
+  /* Tells the browser which palette to use for chrome it renders itself -
+     a <select>'s option list, the <input type="time"> picker, number
+     spinners - none of which take the CSS variables below. Without this the
+     browser assumes light unconditionally, so those popups stayed white (and
+     their text, which does inherit our dark foreground colour, unreadable
+     against it) even with .dark applied everywhere else. */
+  color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -85,6 +92,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
