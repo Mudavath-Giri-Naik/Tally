@@ -15,6 +15,12 @@ import {
 } from "@/lib/merchants";
 import { PUBLIC_URL } from "@/lib/env";
 import { normaliseWorkflows } from "@/lib/workflows";
+import {
+  parseStoreConfig,
+  sealStoreConfig,
+  StoreConfigError,
+  type StoreConfig,
+} from "@/lib/mcp/store";
 import type { Channel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -63,14 +69,27 @@ export async function POST(request: Request): Promise<NextResponse> {
   };
 
   try {
+    // Checked before the merchant exists, so a bad store address cannot leave
+    // a half-onboarded business behind. A blank address means "no MCP server".
+    const storeInput = body.store as Record<string, unknown> | undefined;
+    const store: StoreConfig | null = storeInput?.base_url
+      ? parseStoreConfig(storeInput)
+      : null;
+
     const { merchant, webhook_secret } = await createMerchant(input);
     const publicMerchant = toPublic(merchant, PUBLIC_URL());
+    const mcpUrl = store
+      ? `${PUBLIC_URL()}/api/mcp/${merchant.id}/${sealStoreConfig(merchant.id, store)}`
+      : null;
 
     return NextResponse.json(
       {
         merchant: publicMerchant,
         // Shown once. Tally cannot display it again, by design.
         webhook_secret,
+        // The link an AI tool connects to. Derived from the store endpoints
+        // and not stored, so like the secret it cannot be shown again.
+        mcp_url: mcpUrl,
         next_steps: {
           webhook_url: publicMerchant.webhook_url,
           dashboard_url: publicMerchant.dashboard_url,
@@ -89,6 +108,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 201 },
     );
   } catch (err) {
+    if (err instanceof StoreConfigError) {
+      return NextResponse.json(
+        { error: err.message, field: err.field },
+        { status: 422 },
+      );
+    }
     if (err instanceof ValidationError) {
       return NextResponse.json(
         { error: err.message, field: err.field },

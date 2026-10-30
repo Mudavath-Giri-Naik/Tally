@@ -35,7 +35,11 @@ export type CredentialContext =
   | "voice_number"
   // Model provider keys. Platform-owned rather than a merchant's, but stored
   // under the same scheme - a credential is a credential.
-  | "ai_api_key";
+  | "ai_api_key"
+  // The store endpoints baked into a merchant's MCP link. Not secret in
+  // themselves, but sealed so the link cannot be forged or edited into
+  // pointing Tally's server at an address of someone's choosing.
+  | "mcp_store_config";
 
 function loadKey(): Buffer {
   const raw = requireEnv(

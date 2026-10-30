@@ -12,6 +12,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 import { CopyField } from "@/components/copy-field";
+import { DEFAULT_STORE_CONFIG } from "@/lib/mcp/store-defaults";
 import {
   BUSINESS_TYPES,
   WORKFLOW_IDS,
@@ -31,6 +32,7 @@ interface Success {
     dashboard_url: string;
   };
   webhook_secret: string;
+  mcp_url: string | null;
   next_steps: {
     dashboard_url: string;
     events_to_subscribe: string[];
@@ -41,6 +43,14 @@ const CHANNELS = [
   { id: "email", label: "Email", note: "Works immediately." },
   { id: "whatsapp", label: "WhatsApp", note: "Twilio Sandbox during the MVP." },
   { id: "voice", label: "Voice", note: "A real phone call, in Hinglish." },
+] as const;
+
+const STORE_FIELDS = [
+  { key: "base_url", label: "Store address", placeholder: "https://yourstore.com" },
+  { key: "products_path", label: "Product list (search)", placeholder: "/api/products" },
+  { key: "product_path", label: "Single product", placeholder: "/api/products/:id" },
+  { key: "orders_path", label: "Place order", placeholder: "/api/orders" },
+  { key: "order_status_path", label: "Order status", placeholder: "/api/orders/:id" },
 ] as const;
 
 export default function OnboardingPage() {
@@ -55,6 +65,7 @@ export default function OnboardingPage() {
     timezone: "Asia/Kolkata",
     max_attempts: 3,
   });
+  const [store, setStore] = useState({ ...DEFAULT_STORE_CONFIG });
   const [channels, setChannels] = useState<string[]>(["email", "whatsapp"]);
   // Null until the merchant answers, so the workflow list stays hidden rather
   // than showing an arbitrary pre-selection nobody asked for.
@@ -107,6 +118,7 @@ export default function OnboardingPage() {
           ...form,
           whatsapp_number: form.whatsapp_number || null,
           voice_number: form.voice_number || null,
+          store,
           channels_enabled: channels,
           // Omitted entirely when the question was skipped, so the server
           // applies its own default rather than storing an empty list.
@@ -159,6 +171,18 @@ export default function OnboardingPage() {
             </p>
             <CopyField value={result.webhook_secret} />
           </li>
+          {result.mcp_url && (
+            <li>
+              <h3>Connect your store to Claude or ChatGPT</h3>
+              <p className="muted small">
+                Add this as a custom connector (remote MCP server) in Claude or
+                ChatGPT. Anyone with the link can browse your products and place
+                orders that are paid through your Razorpay account, so keep it
+                private. Tally cannot show it again.
+              </p>
+              <CopyField value={result.mcp_url} />
+            </li>
+          )}
           <li>
             <h3>Subscribe to these events</h3>
             <p className="muted small">
@@ -262,6 +286,33 @@ export default function OnboardingPage() {
               <div className="field__error">{error}</div>
             )}
           </div>
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3 style={{ marginBottom: 6 }}>Your store</h3>
+          <p className="field__hint" style={{ marginBottom: 18 }}>
+            Tally builds an MCP server from these endpoints, so AI tools like
+            Claude and ChatGPT can browse your products and take payment with
+            your Razorpay keys. Pre-filled with a demo store; change them to
+            yours. Leave the address empty to skip.
+          </p>
+          {STORE_FIELDS.map(({ key, label, placeholder }) => (
+            <div className="field" key={key}>
+              <label className="field__label" htmlFor={`store_${key}`}>
+                {label}
+              </label>
+              <input
+                id={`store_${key}`}
+                type="text"
+                value={store[key]}
+                onChange={(e) => setStore((s) => ({ ...s, [key]: e.target.value }))}
+                placeholder={placeholder}
+              />
+              {errorField === `store_${key}` && (
+                <div className="field__error">{error}</div>
+              )}
+            </div>
+          ))}
         </div>
 
         <div className="card" style={{ marginTop: 16 }}>
