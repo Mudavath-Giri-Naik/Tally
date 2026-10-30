@@ -127,15 +127,15 @@ export default async function HomePage() {
           {/* ── headline ── */}
           <div className="mx-auto max-w-4xl px-4 pt-12 pb-10 text-center sm:px-6 sm:pt-14 sm:pb-8">
             <h1 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-3xl leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-5xl md:text-6xl">
-              Revenue
+              <span className="whitespace-nowrap">Recover Revenue.</span>
               <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-xl shadow-slate-900/30 sm:size-11 md:size-12 -rotate-6 border-t border-slate-500">
                 <span className="absolute top-1 left-2"><Sparkles className="size-2 sm:size-3 text-white/80" fill="currentColor" /></span>
                 <span className="text-lg sm:text-xl md:text-2xl font-bold text-slate-200 tracking-tighter">AI</span>
               </span>
-              Recovery
+              <span className="whitespace-nowrap">Sell Anywhere.</span>
             </h1>
             <p className="mx-auto mt-4 max-w-lg text-sm text-neutral-600 sm:text-base">
-              AI that finds out why a payment failed — and gets it back for you, automatically.
+              Give Claude and ChatGPT your own store link to search and sell from, and win back every failed payment automatically.
             </p>
 
             <div className="mt-5 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
@@ -227,7 +227,7 @@ export default async function HomePage() {
               Features
             </span>
             <h2 className="animate-fade-up marketing-motion mt-4 text-3xl font-bold tracking-tight text-neutral-900 sm:text-4xl" style={{ animationDelay: "80ms" }}>
-              What it does on its own
+              Recover payments. Sell through AI.
             </h2>
           </div>
 
@@ -244,8 +244,8 @@ export default async function HomePage() {
             Connect once. Then just watch.
           </h2>
           <p className="mx-auto mt-3 max-w-md text-neutral-600">
-            Setup is a Razorpay key, a webhook URL, and the hours you are happy
-            for customers to be contacted.
+            Add your Razorpay keys and store endpoints. You get a webhook to
+            recover payments and an MCP link to sell through AI.
           </p>
           <Link
             href="/onboarding"

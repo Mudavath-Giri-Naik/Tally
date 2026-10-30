@@ -29,9 +29,9 @@ import { useRef } from "react";
 import {
   ClockIcon,
   EyeIcon,
-  GitMergeIcon,
   LockKeyholeIcon,
   OctagonXIcon,
+  PlugZapIcon,
   SendIcon,
 } from "lucide-react";
 
@@ -46,6 +46,12 @@ interface FeatureCard {
 
 const FEATURE_CARDS: FeatureCard[] = [
   {
+    t: "Your store, searchable by AI",
+    d: "Every business gets its own MCP link. Claude and ChatGPT can browse your products and take payment through your Razorpay.",
+    icon: PlugZapIcon,
+    tone: "amber",
+  },
+  {
     t: "Acts, rather than labels",
     d: "It sends the message, places the call, and generates the retry link — inside the guardrails you set.",
     icon: SendIcon,
@@ -56,12 +62,6 @@ const FEATURE_CARDS: FeatureCard[] = [
     d: "A contact window, an attempt cap, and an instant stop on opt-out. A message that would land at 2am waits until morning.",
     icon: ClockIcon,
     tone: "sky",
-  },
-  {
-    t: "One message, not three",
-    d: "If a customer has a failed subscription and an abandoned cart, they hear from you once, about both.",
-    icon: GitMergeIcon,
-    tone: "amber",
   },
   {
     t: "Knows when to stop",

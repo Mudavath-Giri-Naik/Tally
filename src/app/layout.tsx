@@ -23,9 +23,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tally - AI revenue recovery",
+  title: "Tally - AI revenue recovery and AI-ready store",
   description:
-    "Connect Razorpay once. Tally listens for failed payments, works out why they failed, and recovers them on its own.",
+    "Connect Razorpay once. Tally recovers failed payments on its own, and gives your store an MCP link so Claude and ChatGPT can search and sell it.",
 };
 
 /**

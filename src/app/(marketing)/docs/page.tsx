@@ -63,6 +63,10 @@ export default function DocsPage() {
           <li>Your Razorpay Key ID and Key Secret</li>
           <li>The hours you are happy for customers to be contacted</li>
           <li>
+            Optionally, your store&apos;s endpoints, for an MCP link that lets
+            Claude and ChatGPT search and sell it
+          </li>
+          <li>
             Optionally, a phone number for WhatsApp and voice recovery
           </li>
         </ul>
@@ -117,6 +121,16 @@ export default function DocsPage() {
               The <code>.paid</code> and <code>.charged</code> events are how
               Tally knows a recovery actually worked. Without them your recovery
               numbers will read as zero even when customers are paying.
+            </p>
+          </li>
+
+          <li>
+            <h3>Connect your store to AI (optional)</h3>
+            <p className="muted small">
+              If you filled in your store endpoints, Tally also gives you an
+              MCP link, and it stays in Settings. Add it as a custom connector
+              in Claude or ChatGPT to let them search your products and take
+              payment through your Razorpay. Keep it private.
             </p>
           </li>
 
