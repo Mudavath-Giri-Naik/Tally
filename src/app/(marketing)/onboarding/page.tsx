@@ -8,7 +8,7 @@
  * success state hands back the two things the merchant needs to finish in
  * Razorpay — the webhook URL and the signing secret.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { CopyField } from "@/components/copy-field";
@@ -45,6 +45,8 @@ const CHANNELS = [
   { id: "voice", label: "Voice", note: "A real phone call, in Hinglish." },
 ] as const;
 
+const KEYS_STORAGE = "tally.razorpay_keys";
+
 const STORE_FIELDS = [
   { key: "base_url", label: "Store address", placeholder: "https://yourstore.com" },
   { key: "products_path", label: "Product list (search)", placeholder: "/api/products" },
@@ -56,8 +58,10 @@ const STORE_FIELDS = [
 export default function OnboardingPage() {
   const [form, setForm] = useState({
     business_name: "",
-    razorpay_key_id: "",
-    razorpay_key_secret: "",
+    // Demo test-mode keys, shown to everyone like the store endpoints below.
+    // Editable; "Save these keys" remembers an edited pair in this browser.
+    razorpay_key_id: "rzp_test_TtjSIvmzxsi2ms",
+    razorpay_key_secret: "6oUbdh6Ta25EYMq1s62hoc25",
     whatsapp_number: "",
     voice_number: "",
     contact_window_start: "08:00",
@@ -75,6 +79,35 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
   const [result, setResult] = useState<Success | null>(null);
+
+  const [keysSaved, setKeysSaved] = useState(false);
+
+  // Restore keys saved earlier in this browser, over the defaults.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(KEYS_STORAGE);
+      if (!raw) return;
+      const k = JSON.parse(raw) as { id?: string; secret?: string };
+      if (k.id && k.secret) {
+        setForm((f) => ({ ...f, razorpay_key_id: k.id!, razorpay_key_secret: k.secret! }));
+      }
+    } catch {
+      /* storage unavailable or corrupt: keep the defaults */
+    }
+  }, []);
+
+  function saveKeys() {
+    try {
+      localStorage.setItem(
+        KEYS_STORAGE,
+        JSON.stringify({ id: form.razorpay_key_id, secret: form.razorpay_key_secret }),
+      );
+      setKeysSaved(true);
+      setTimeout(() => setKeysSaved(false), 2000);
+    } catch {
+      setError("Could not save: this browser is blocking storage.");
+    }
+  }
 
   function set(key: keyof typeof form, value: string | number) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -286,6 +319,10 @@ export default function OnboardingPage() {
               <div className="field__error">{error}</div>
             )}
           </div>
+
+          <button className="btn" type="button" onClick={saveKeys}>
+            {keysSaved ? "Saved" : "Save these keys"}
+          </button>
         </div>
 
         <div className="card" style={{ marginTop: 16 }}>
