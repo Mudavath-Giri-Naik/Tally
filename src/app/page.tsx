@@ -64,7 +64,7 @@ export default async function HomePage() {
             with zero distortion and zero cropping - there is no mismatch
             between the two shapes for either of those to correct. */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 aspect-[1713/918] w-full bg-[url('/background.png')] bg-top bg-no-repeat [background-size:100%_100%]"
+          className="pointer-events-none absolute inset-0 w-full bg-[url('/background.png')] bg-top bg-no-repeat [background-size:cover] sm:inset-x-0 sm:bottom-auto sm:aspect-[1713/918] sm:[background-size:100%_100%]"
           aria-hidden="true"
         >
           {/* Fades the image's own bottom edge into the white section below,
@@ -125,7 +125,7 @@ export default async function HomePage() {
           </header>
 
           {/* ── headline ── */}
-          <div className="mx-auto max-w-4xl px-4 pt-10 pb-6 text-center sm:px-6 sm:pt-14 sm:pb-8">
+          <div className="mx-auto max-w-4xl px-4 pt-12 pb-12 text-center sm:px-6 sm:pt-14 sm:pb-8">
             <h1 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-3xl leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-5xl md:text-6xl">
               Revenue
               <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-xl shadow-slate-900/30 sm:size-11 md:size-12 -rotate-6 border-t border-slate-500">
@@ -177,7 +177,7 @@ export default async function HomePage() {
           </div>
 
           {/* ── dashboard: a plain static image, no scroll animation ── */}
-          <div className="mx-auto max-w-5xl px-4 pb-14 sm:px-6 sm:pb-20">
+          <div className="mx-auto hidden max-w-5xl px-4 pb-14 sm:block sm:px-6 sm:pb-20">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/dashboard.png"
@@ -355,6 +355,21 @@ export default async function HomePage() {
           </div>
         </section>
       )}
+
+      {/* Phones only: the dashboard preview closes the page instead of
+          sitting between the hero and the explainer. */}
+      <div className="mx-auto max-w-5xl px-4 pb-16 sm:hidden">
+        <p className="mb-4 text-center text-xs font-bold tracking-wide text-neutral-500 uppercase">
+          The dashboard
+        </p>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/dashboard.png"
+          alt="Tally's live recovery dashboard"
+          loading="lazy"
+          className="w-full rounded-xl border-[6px] border-neutral-100 shadow-xl"
+        />
+      </div>
     </div>
   );
 }
