@@ -383,4 +383,53 @@ select:focus {
 .section-icon--amber { background: rgba(245, 158, 11, 0.14); color: #b45309; }
 .section-icon--rose { background: rgba(244, 63, 94, 0.12); color: #be123c; }
 
+/* ── small screens ──────────────────────────────────────────────────────── */
+/* The rules above were written desktop-first and never narrowed. These bring
+   the landing-adjacent pages (docs, onboarding) down to a phone: tighter
+   gutters, smaller headings, full-width actions, and form text at 16px, which
+   is what stops iOS Safari zooming the page whenever a field is focused. */
+@media (max-width: 640px) {
+  .shell {
+    padding: 0 16px 64px;
+    font-size: 14.5px;
+  }
+  .shell h1 { font-size: 1.55rem; }
+  .shell h2 { font-size: 1.15rem; }
+  .shell h3 { font-size: 1rem; }
+
+  .card { padding: 16px; }
+  .section { margin-top: 28px; }
+
+  .grid--2 { grid-template-columns: 1fr; }
+  .grid--stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .stat__value { font-size: 1.5rem; }
+
+  input[type="text"],
+  input[type="password"],
+  input[type="time"],
+  input[type="number"],
+  select {
+    font-size: 16px;
+    padding: 11px 12px;
+  }
+
+  .checkbox-row { gap: 12px; }
+  .checkbox { align-items: flex-start; padding: 2px 0; }
+  .checkbox input { margin-top: 4px; flex-shrink: 0; }
+
+  .btn {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 12px 16px;
+  }
+
+  .steps > li { padding-left: 36px; margin-bottom: 24px; }
+  .steps > li::before { width: 24px; height: 24px; font-size: 0.78rem; }
+
+  .section-icon { width: 30px; height: 30px; margin-right: 8px; vertical-align: -8px; }
+
+  th, td { padding: 10px; }
+  .shell pre { font-size: 0.76rem; padding: 12px; }
+}
 

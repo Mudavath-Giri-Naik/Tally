@@ -18,7 +18,7 @@ export default function MarketingLayout({
   return (
     <>
       <header className="sticky top-0 z-10 border-b border-neutral-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-[1080px] items-center justify-between gap-6 px-6 py-3.5">
+        <div className="mx-auto flex max-w-[1080px] items-center justify-between gap-4 px-4 py-3.5 sm:gap-6 sm:px-6">
           <Link href="/" className="flex shrink-0 items-center gap-2">
             <span className="flex size-7 items-center justify-center rounded-[0.35rem] bg-[#1a1a1a] text-white">
               <ShieldCheckIcon className="size-3.5" strokeWidth={2.5} />
@@ -28,7 +28,7 @@ export default function MarketingLayout({
             </span>
           </Link>
 
-          <nav className="flex items-center gap-6 text-sm font-semibold text-neutral-600">
+          <nav className="flex items-center gap-4 text-sm sm:gap-6 font-semibold text-neutral-600">
             <Link href="/docs" className="transition-colors hover:text-neutral-900">
               Docs
             </Link>
