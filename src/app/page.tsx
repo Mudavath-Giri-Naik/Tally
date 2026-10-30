@@ -125,7 +125,7 @@ export default async function HomePage() {
           </header>
 
           {/* ── headline ── */}
-          <div className="mx-auto max-w-4xl px-4 pt-12 pb-12 text-center sm:px-6 sm:pt-14 sm:pb-8">
+          <div className="mx-auto max-w-4xl px-4 pt-12 pb-10 text-center sm:px-6 sm:pt-14 sm:pb-8">
             <h1 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-3xl leading-[1.05] font-extrabold tracking-tight text-neutral-900 sm:text-5xl md:text-6xl">
               Revenue
               <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-slate-600 to-slate-800 align-middle shadow-xl shadow-slate-900/30 sm:size-11 md:size-12 -rotate-6 border-t border-slate-500">
@@ -142,7 +142,7 @@ export default async function HomePage() {
               <div className="rounded-full bg-[#4A85F6]/20 p-1">
                 <Link
                   href="/onboarding"
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[#4A85F6] px-5 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-[#366AE6] sm:w-auto border border-[#76A1F9]"
+                  className="flex w-auto items-center justify-center gap-2 rounded-full bg-[#4A85F6] px-5 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-[#366AE6] border border-[#76A1F9]"
                 >
                   Connect your business
                   <span className="flex size-5 items-center justify-center rounded-full bg-white text-[#4A85F6]">
@@ -152,7 +152,7 @@ export default async function HomePage() {
               </div>
               <Link
                 href="/dashboard/mandate-2"
-                className="w-full rounded-full border border-transparent bg-white px-6 py-2.5 text-center text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 sm:w-auto"
+                className="w-auto rounded-full border border-transparent bg-white px-6 py-2.5 text-center text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50"
               >
                 View demo
               </Link>
@@ -177,12 +177,12 @@ export default async function HomePage() {
           </div>
 
           {/* ── dashboard: a plain static image, no scroll animation ── */}
-          <div className="mx-auto hidden max-w-5xl px-4 pb-14 sm:block sm:px-6 sm:pb-20">
+          <div className="mx-auto mt-2 max-w-5xl px-4 pb-14 sm:mt-0 sm:px-6 sm:pb-20">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/dashboard.png"
               alt="Tally's live recovery dashboard"
-              className="w-full rounded-xl border-[8px] border-white/80 shadow-2xl sm:rounded-2xl sm:border-[12px]"
+              className="w-full rounded-xl border-[6px] border-white/80 shadow-[0_24px_60px_-12px_rgba(15,23,42,0.35)] ring-1 ring-neutral-900/5 sm:rounded-2xl sm:border-[12px] sm:shadow-2xl"
             />
           </div>
         </div>
@@ -356,20 +356,6 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Phones only: the dashboard preview closes the page instead of
-          sitting between the hero and the explainer. */}
-      <div className="mx-auto max-w-5xl px-4 pb-16 sm:hidden">
-        <p className="mb-4 text-center text-xs font-bold tracking-wide text-neutral-500 uppercase">
-          The dashboard
-        </p>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/dashboard.png"
-          alt="Tally's live recovery dashboard"
-          loading="lazy"
-          className="w-full rounded-xl border-[6px] border-neutral-100 shadow-xl"
-        />
-      </div>
     </div>
   );
 }
