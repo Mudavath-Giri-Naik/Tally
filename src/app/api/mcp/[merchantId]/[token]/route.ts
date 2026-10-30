@@ -6,7 +6,12 @@
  */
 import { NextResponse } from "next/server";
 import { getMerchant, razorpayCredentials } from "@/lib/merchants";
-import { openStoreConfig } from "@/lib/mcp/store";
+import {
+  isShortToken,
+  openStoreConfig,
+  parseStoreConfig,
+  verifyShortToken,
+} from "@/lib/mcp/store";
 import { handleMessage, type McpContext } from "@/lib/mcp/server";
 
 export const runtime = "nodejs";
@@ -37,8 +42,12 @@ export async function GET() {
 export async function POST(request: Request, { params }: Params) {
   const { merchantId, token } = await params;
 
-  const store = openStoreConfig(merchantId, token);
-  if (!store) return json({ error: "Invalid MCP link." }, 404);
+  const short = isShortToken(token);
+  if (short && !verifyShortToken(merchantId, token)) {
+    return json({ error: "Invalid MCP link." }, 404);
+  }
+  const sealed = short ? null : openStoreConfig(merchantId, token);
+  if (!short && !sealed) return json({ error: "Invalid MCP link." }, 404);
 
   let merchant;
   try {
@@ -47,6 +56,16 @@ export async function POST(request: Request, { params }: Params) {
     return json({ error: "Could not load this business." }, 500);
   }
   if (!merchant || !merchant.active) return json({ error: "Invalid MCP link." }, 404);
+
+  let store = sealed;
+  if (short) {
+    try {
+      store = parseStoreConfig(merchant.mcp_config);
+    } catch {
+      return json({ error: "Invalid MCP link." }, 404);
+    }
+  }
+  if (!store) return json({ error: "Invalid MCP link." }, 404);
 
   let body: unknown;
   try {

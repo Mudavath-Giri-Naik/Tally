@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import {
   createMerchant,
+  saveMcpConfig,
   toPublic,
   ValidationError,
   type OnboardingInput,
@@ -18,6 +19,7 @@ import { normaliseWorkflows } from "@/lib/workflows";
 import {
   parseStoreConfig,
   sealStoreConfig,
+  shortMcpUrl,
   StoreConfigError,
   type StoreConfig,
 } from "@/lib/mcp/store";
@@ -78,8 +80,13 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const { merchant, webhook_secret } = await createMerchant(input);
     const publicMerchant = toPublic(merchant, PUBLIC_URL());
+    // Short link when the endpoints could be stored on the merchant row; the
+    // self-contained (long) link otherwise, so this works before the column
+    // has been added to the database.
     const mcpUrl = store
-      ? `${PUBLIC_URL()}/api/mcp/${merchant.id}/${sealStoreConfig(merchant.id, store)}`
+      ? (await saveMcpConfig(merchant.id, store))
+        ? shortMcpUrl(PUBLIC_URL(), merchant.id)
+        : `${PUBLIC_URL()}/api/mcp/${merchant.id}/${sealStoreConfig(merchant.id, store)}`
       : null;
 
     return NextResponse.json(

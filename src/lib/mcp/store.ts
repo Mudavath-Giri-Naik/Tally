@@ -7,7 +7,9 @@
  * pointing the server somewhere else. The merchant row is still checked on
  * every call, so deleting or pausing a business switches its link off.
  */
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { decrypt, encrypt } from "../crypto";
+import { requireEnv } from "../env";
 
 import { DEFAULT_STORE_CONFIG, type StoreConfig } from "./store-defaults";
 
@@ -93,6 +95,37 @@ export function storeUrl(cfg: StoreConfig, path: string, id?: string): URL {
     throw new Error("Refusing to call outside the configured store.");
   }
   return url;
+}
+
+/**
+ * The short form of a link: a token derived from the merchant id, with the
+ * endpoints read from the merchant row. Unforgeable without the server key,
+ * and recomputable, so Settings can show the link again at any time.
+ */
+export function shortToken(merchantId: string): string {
+  const key = Buffer.from(
+    requireEnv("CREDENTIAL_ENCRYPTION_KEY", "signing MCP links"),
+    "base64",
+  );
+  return createHmac("sha256", key)
+    .update(`mcp-link:${merchantId}`)
+    .digest("base64url")
+    .slice(0, 32);
+}
+
+export function isShortToken(token: string): boolean {
+  return token.length === 32;
+}
+
+export function verifyShortToken(merchantId: string, token: string): boolean {
+  const a = Buffer.from(shortToken(merchantId));
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** The link for a business whose endpoints are stored on its row. */
+export function shortMcpUrl(baseUrl: string, merchantId: string): string {
+  return `${baseUrl}/api/mcp/${merchantId}/${shortToken(merchantId)}`;
 }
 
 export function sealStoreConfig(merchantId: string, cfg: StoreConfig): string {

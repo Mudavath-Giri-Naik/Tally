@@ -133,6 +133,11 @@ begin
   );
 end $$;
 
+-- The storefront endpoints behind a business's MCP link (see lib/mcp). Nullable:
+-- a business onboarded without a store has none. Until this runs, onboarding
+-- falls back to a longer, self-contained link.
+alter table merchants add column if not exists mcp_config jsonb;
+
 -- --- customers -------------------------------------------------------------
 create table if not exists customers (
   id           uuid primary key default gen_random_uuid(),

@@ -94,6 +94,12 @@ export interface Merchant {
    */
   ai_model: string | null;
   active: boolean;
+  /**
+   * The storefront endpoints behind this business's MCP link. Absent until
+   * the column exists in the database (see schema.sql) and for a merchant
+   * onboarded without a store.
+   */
+  mcp_config?: import("./mcp/store-defaults").StoreConfig | null;
   created_at: string;
 }
 

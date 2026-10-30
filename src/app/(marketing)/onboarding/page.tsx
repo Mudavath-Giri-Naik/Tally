@@ -211,7 +211,7 @@ export default function OnboardingPage() {
                 Add this as a custom connector (remote MCP server) in Claude or
                 ChatGPT. Anyone with the link can browse your products and place
                 orders that are paid through your Razorpay account, so keep it
-                private. Tally cannot show it again.
+                private. It is also in Settings.
               </p>
               <CopyField value={result.mcp_url} />
             </li>

@@ -22,6 +22,7 @@ import {
 } from "./crypto";
 import { DEFAULT_WORKFLOWS, normaliseWorkflows, type WorkflowId } from "./workflows";
 import type { Merchant, Channel } from "./types";
+import type { StoreConfig } from "./mcp/store-defaults";
 
 /** What a merchant record looks like to everything outside this module. */
 export interface PublicMerchant {
@@ -242,6 +243,19 @@ export async function createMerchant(
   // Returned once, at onboarding, so the merchant can paste it into Razorpay.
   // It is never shown again.
   return { merchant: data as Merchant, webhook_secret: webhookSecret };
+}
+
+/**
+ * Remember a business's store endpoints so its MCP link can be short and can
+ * be shown again. Returns false, rather than throwing, when the column is not
+ * in the database yet: the caller then falls back to a self-contained link.
+ */
+export async function saveMcpConfig(
+  id: string,
+  cfg: StoreConfig,
+): Promise<boolean> {
+  const { error } = await db().from("merchants").update({ mcp_config: cfg }).eq("id", id);
+  return !error;
 }
 
 export async function getMerchant(id: string): Promise<Merchant | null> {

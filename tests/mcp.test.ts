@@ -54,3 +54,17 @@ test("create_order validates before touching the network", async () => {
   const r = await handleMessage(ctx, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "create_order", arguments: { product_id: "x" } } });
   assert.equal((r!.result as { isError: boolean }).isError, true);
 });
+
+import { isShortToken, shortToken, verifyShortToken } from "../src/lib/mcp/store";
+
+test("short token is stable, per-merchant, and verified", () => {
+  const t = shortToken("m1");
+  assert.equal(t.length, 32);
+  assert.ok(isShortToken(t));
+  assert.equal(shortToken("m1"), t);
+  assert.ok(verifyShortToken("m1", t));
+  assert.ok(!verifyShortToken("m2", t));
+  assert.ok(!verifyShortToken("m1", t.slice(0, -1) + (t.endsWith("A") ? "B" : "A")));
+  // a sealed (long) token is never mistaken for a short one
+  assert.ok(!isShortToken(sealStoreConfig("m1", DEFAULT_STORE_CONFIG)));
+});

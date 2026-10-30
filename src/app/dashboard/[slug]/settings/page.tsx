@@ -10,6 +10,7 @@ import { notFound } from "next/navigation";
 import { resolveMerchant, toPublic } from "@/lib/merchants";
 import { PUBLIC_URL } from "@/lib/env";
 import { SettingsForm } from "@/components/settings-form";
+import { shortMcpUrl } from "@/lib/mcp/store";
 import { CopyField } from "@/components/copy-field";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +75,25 @@ export default async function SettingsPage({
         </CardHeader>
         <CardContent className="space-y-6">
           <CopyField label="Webhook URL" value={pub.webhook_url} />
+
+          {merchant.mcp_config ? (
+            <div className="space-y-2">
+              <CopyField
+                label="MCP server link"
+                value={shortMcpUrl(PUBLIC_URL(), merchant.id)}
+              />
+              <p className="text-muted-foreground text-sm">
+                Add this as a custom connector in Claude or ChatGPT to browse{" "}
+                {merchant.business_name}&apos;s products and take payment. Anyone
+                with the link can place orders, so keep it private.
+              </p>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No MCP server link for this business. It is created at onboarding
+              from the store endpoints.
+            </p>
+          )}
 
           <div className="grid gap-6 sm:grid-cols-2">
             <div>
